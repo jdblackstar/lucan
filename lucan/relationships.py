@@ -12,10 +12,13 @@ import yaml
 
 
 class RelationshipManager:
-    """Manages relationship notes for the user."""
+    """
+    Manages relationship notes for the user.
+    """
 
     def __init__(self, relationships_dir: Path) -> None:
-        """Initialize the relationship manager.
+        """
+        Initialize the relationship manager.
 
         Args:
             relationships_dir: Path to the directory where relationship files are stored
@@ -24,7 +27,8 @@ class RelationshipManager:
         self.relationships_dir.mkdir(exist_ok=True)
 
     def _sanitize_filename(self, name: str) -> str:
-        """Convert a name to a safe filename.
+        """
+        Convert a name to a safe filename.
 
         Args:
             name: The name to sanitize
@@ -39,7 +43,8 @@ class RelationshipManager:
         return sanitized
 
     def add_note(self, name: str, relationship_type: str, note: str) -> bool:
-        """Add a note about someone.
+        """
+        Add a note about someone.
 
         Args:
             name: The name of the person/pet
@@ -127,7 +132,8 @@ class RelationshipManager:
             return False
 
     def get_notes(self, name: str) -> Optional[Dict]:
-        """Get notes about someone.
+        """
+        Get notes about someone.
 
         Args:
             name: The name of the person/pet
@@ -181,7 +187,8 @@ class RelationshipManager:
         }
 
     def find_by_relationship_type(self, relationship_type: str) -> List[Dict]:
-        """Find people by their relationship type.
+        """
+        Find people by their relationship type.
 
         Args:
             relationship_type: The type of relationship to search for

@@ -22,7 +22,9 @@ class Lucan:
             self.modifiers = yaml.safe_load(f).get("modifiers", {})
 
     def save_modifiers(self) -> None:
-        """Save current modifiers back to the modifiers.txt file."""
+        """
+        Save current modifiers back to the modifiers.txt file.
+        """
         data = {"modifiers": self.modifiers}
         with open(self.modifiers_file, "w") as f:
             yaml.dump(data, f, default_flow_style=False)

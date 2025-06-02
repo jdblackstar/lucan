@@ -15,7 +15,9 @@ load_dotenv()
 
 
 class LucanChat:
-    """Core chat functionality for the Lucan AI friend."""
+    """
+    Core chat functionality for the Lucan AI friend.
+    """
 
     def __init__(self, persona_path: str | Path, debug: bool = False):
         """
@@ -280,7 +282,8 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
         return processed_response.strip()
 
     def _process_relationship_action(self, response: str) -> str:
-        """Process any relationship actions in the response.
+        """
+        Process any relationship actions in the response.
 
         Args:
             response: Lucan's response that may contain relationship actions
@@ -365,7 +368,8 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
         return processed_response.strip()
 
     def _get_relationship_query_context(self, user_message: str) -> str:
-        """Get relationship context when user asks about relationship types.
+        """
+        Get relationship context when user asks about relationship types.
 
         Args:
             user_message: The user's message
@@ -454,7 +458,8 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
         return ""
 
     def send_message(self, user_message: str) -> str:
-        """Send a message to Lucan and get a response.
+        """
+        Send a message to Lucan and get a response.
 
         Args:
             user_message: The user's message
@@ -505,15 +510,20 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
             return f"Error communicating with Lucan: {str(e)}"
 
     def clear_history(self) -> None:
-        """Clear the conversation history."""
+        """
+        Clear the conversation history.
+        """
         self.conversation_history = []
 
     def get_history_length(self) -> int:
-        """Get the number of messages in the conversation history."""
+        """
+        Get the number of messages in the conversation history.
+        """
         return len(self.conversation_history)
 
     def _infer_relationship_type(self, name: str) -> str:
-        """Infer a relationship type for a given name based on recent conversation context.
+        """
+        Infer a relationship type for a given name based on recent conversation context.
 
         Args:
             name: The name of the person

@@ -13,10 +13,13 @@ from .core import LucanChat
 
 
 class LucanCLI:
-    """Command-line interface for chatting with Lucan."""
+    """
+    Command-line interface for chatting with Lucan.
+    """
 
     def __init__(self, persona_path: Optional[str] = None, debug: bool = False):
-        """Initialize the CLI with an optional persona path and debug mode.
+        """
+        Initialize the CLI with an optional persona path and debug mode.
 
         Args:
             persona_path: Path to persona directory. Defaults to memory/personas/lucan/
@@ -42,7 +45,9 @@ class LucanCLI:
             self._display_debug_system_prompt()
 
     def _display_debug_modifiers(self) -> None:
-        """Display the currently loaded modifier values for debugging."""
+        """
+        Display the currently loaded modifier values for debugging.
+        """
         modifiers = self.chat.lucan.modifiers
         debug_text = "**Loaded Modifiers:**\n\n"
 
@@ -64,7 +69,9 @@ class LucanCLI:
         )
 
     def _display_debug_system_prompt(self) -> None:
-        """Display the generated system prompt for debugging."""
+        """
+        Display the generated system prompt for debugging.
+        """
         system_prompt = self.chat.system_prompt
 
         self.console.print(
@@ -77,7 +84,9 @@ class LucanCLI:
         )
 
     def _display_welcome(self) -> None:
-        """Display the welcome message."""
+        """
+        Display the welcome message.
+        """
         welcome_text = Text()
         welcome_text.append("Welcome to ", style="white")
         welcome_text.append("Lucan", style="bold cyan")
@@ -92,7 +101,8 @@ class LucanCLI:
         self.console.print(panel)
 
     def _display_message(self, message: str, sender: str = "lucan") -> None:
-        """Display a message from Lucan or system.
+        """
+        Display a message from Lucan or system.
 
         Args:
             message: The message to display
@@ -112,11 +122,14 @@ class LucanCLI:
             self.console.print(f"[dim]{message}[/dim]")
 
     def _get_user_input(self) -> str:
-        """Get input from the user with a nice prompt."""
+        """
+        Get input from the user with a nice prompt.
+        """
         return Prompt.ask("[bold blue]You[/bold blue]", console=self.console)
 
     def _handle_command(self, user_input: str) -> bool:
-        """Handle special commands. Returns True if it was a command, False otherwise.
+        """
+        Handle special commands. Returns True if it was a command, False otherwise.
 
         Args:
             user_input: The user's input
@@ -155,7 +168,9 @@ class LucanCLI:
         return False
 
     def run(self) -> None:
-        """Run the main chat loop."""
+        """
+        Run the main chat loop.
+        """
         self._display_welcome()
 
         try:
@@ -185,7 +200,9 @@ class LucanCLI:
 
 
 def _run_cli() -> None:
-    """Entry point for the CLI application."""
+    """
+    Entry point for the CLI application.
+    """
     parser = argparse.ArgumentParser(description="Lucan CLI")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     args = parser.parse_args()
