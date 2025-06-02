@@ -1,0 +1,6 @@
+modifiers:
+  challenge: 0
+  emotional_depth: 0
+  structure: 0
+  verbosity: 0
+  warmth: 3
