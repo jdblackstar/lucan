@@ -1,0 +1,14 @@
+[project]
+name = "lucan"
+version = "0.1.0"
+description = "Your new best friend!"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "ruff>=0.11.12",
+    "anthropic>=0.40.0",
+    "rich>=13.0.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    "pytest>=8.0.0",
+]
