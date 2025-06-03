@@ -38,6 +38,49 @@ class LucanChat:
 
         self.system_prompt = self._build_system_prompt()
 
+    def _define_tools(self) -> List[Dict]:
+        """
+        Define the tools available to Claude.
+
+        Returns:
+            List of tool definitions for the Anthropic API
+        """
+        return [
+            {
+                "name": "add_relationship_note",
+                "description": "Add a note about someone the user mentions. Use this naturally when someone new is mentioned or when you learn new information about someone. Don't announce when you're using this tool.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "The person's name"},
+                        "relationship_type": {
+                            "type": "string",
+                            "description": "Their relationship to the user (e.g., friend, family, colleague, therapist, pet, partner, etc.)",
+                        },
+                        "note": {
+                            "type": "string",
+                            "description": "What to remember about this person (updates, context, interests, concerns, etc.)",
+                        },
+                    },
+                    "required": ["name", "relationship_type", "note"],
+                },
+            },
+            {
+                "name": "get_relationship_notes",
+                "description": "Look up information about someone the user asks about. Use this tool when the user asks questions like 'Do you know my mom?', 'Tell me about Sarah', 'Do you remember my therapist?', 'What do you know about my friend John?', etc. You can search by either a person's name (like 'Sarah') or by relationship type (like 'mom', 'therapist', 'friend'). Don't announce when you're using this tool - just naturally recall the information.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "The person's name OR their relationship type (e.g., 'Sarah', 'mom', 'therapist', 'friend', 'dog')",
+                        }
+                    },
+                    "required": ["name"],
+                },
+            },
+        ]
+
     def _build_system_prompt(self) -> str:
         """
         Build the system prompt from the loaded personality.
@@ -52,7 +95,7 @@ class LucanChat:
             "\nUse these current values when calculating absolute adjustments.\n\n"
         )
 
-        # Add tool definition for modifier adjustment
+        # Add tool definition for modifier adjustment (keeping the JSON approach for now)
         modifier_tool_definition = """
 
 MODIFIER ADJUSTMENT TOOL:
@@ -117,45 +160,23 @@ Examples of when to use each:
 - "Make challenge level 2" → set_modifier, value: 2
 """
 
-        # Add relationship tracking tool
-        relationship_tool_definition = """
+        # Add relationship tracking guidance (now using proper tools)
+        relationship_guidance = """
 
-RELATIONSHIP TRACKING TOOL:
-You have the ability to remember details about people and pets the user mentions. This happens naturally in conversation - don't announce when you're using this tool.
+RELATIONSHIP MEMORY:
+You have access to tools for remembering details about people the user mentions. Use these naturally in conversation:
 
-You have two simple actions:
-
-**To add a note about someone**:
-```json
-{
-    "action": "add_note",
-    "name": "Sarah",
-    "relationship_type": "friend",
-    "note": "Got promoted to senior developer, very excited about it"
-}
-```
-
-**To recall what you know about someone**:
-```json
-{
-    "action": "get_notes",
-    "name": "Sarah"
-}
-```
-
-IMPORTANT GUIDELINES:
-- Use this naturally - NEVER mention "checking notes" or "looking up information"
-- When someone new is mentioned, create a note with basic information
-- Add notes for family, friends, colleagues, pets, anyone important to the user
-- Include relevant context (work updates, life changes, interests, concerns, etc.)
-- When someone is mentioned, recall what you know naturally without announcing it
+- When someone new is mentioned, add a note about them with basic information
+- When you learn new information about someone, add another note 
+- When someone is mentioned again, recall what you know about them naturally
+- Don't announce that you're "checking notes" or "looking up information" - just remember naturally
 - You can acknowledge you remember someone if directly asked about your memory
-- If you don't have notes on someone, create a basic note immediately
+- Remember family, friends, colleagues, pets, therapists - anyone important to the user
 
 Examples:
-- User mentions new person: "My therapist Mervin" → add_note for Mervin as therapist
-- User mentions someone again: naturally recall what you know without saying you're checking
-- User asks: "Do you remember Sarah?" → You can say "Yes, I remember she got promoted recently"
+- User mentions "My therapist Mervin" → add note for Mervin as therapist
+- User mentions someone again → naturally recall what you know without announcing it
+- User asks "Do you remember Sarah?" → You can say "Yes, I remember she got promoted recently"
 
 Remember people naturally, like a good friend would.
 """
@@ -178,9 +199,108 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
             base_prompt
             + current_modifiers
             + modifier_tool_definition
-            + relationship_tool_definition
+            + relationship_guidance
             + additional_context
         )
+
+    def _handle_tool_call(self, tool_name: str, tool_input: Dict) -> Dict:
+        """
+        Handle a tool call and return the result.
+
+        Args:
+            tool_name: The name of the tool being called
+            tool_input: The input parameters for the tool
+
+        Returns:
+            Dict containing the tool result
+        """
+        if tool_name == "add_relationship_note":
+            name = tool_input.get("name", "")
+            relationship_type = tool_input.get("relationship_type", "")
+            note = tool_input.get("note", "")
+
+            if name and note:
+                success = self.relationship_manager.add_note(
+                    name, relationship_type, note
+                )
+                if self.debug:
+                    print(
+                        f"[DEBUG] Added note for {name} ({relationship_type}): {note}"
+                    )
+                return {"success": success, "message": f"Added note for {name}"}
+            else:
+                return {"success": False, "message": "Missing required fields"}
+
+        elif tool_name == "get_relationship_notes":
+            name = tool_input.get("name", "")
+            if name:
+                # First try direct name lookup
+                notes = self.relationship_manager.get_notes(name)
+                if self.debug:
+                    if notes:
+                        print(
+                            f"[DEBUG] Retrieved {len(notes['notes'])} notes for {name}"
+                        )
+                    else:
+                        print(f"[DEBUG] No notes found for {name}")
+
+                if notes:
+                    return {
+                        "success": True,
+                        "name": notes["name"],
+                        "relationship": notes["relationship"],
+                        "notes": notes["notes"],
+                    }
+                else:
+                    # If no direct name match, try searching by relationship type
+                    if self.debug:
+                        print(f"[DEBUG] Trying relationship type search for '{name}'")
+
+                    relationship_results = (
+                        self.relationship_manager.find_by_relationship_type(name)
+                    )
+
+                    if relationship_results:
+                        if self.debug:
+                            names = [r["name"] for r in relationship_results]
+                            print(
+                                f"[DEBUG] Found {len(relationship_results)} people with relationship '{name}': {names}"
+                            )
+
+                        # Return the first match (could be enhanced to return all matches)
+                        first_match = relationship_results[0]
+                        return {
+                            "success": True,
+                            "name": first_match["name"],
+                            "relationship": first_match["relationship"],
+                            "notes": first_match["notes"],
+                            "found_by": "relationship_type",  # Indicate how it was found
+                        }
+                    else:
+                        if self.debug:
+                            print(
+                                f"[DEBUG] No relationship type matches found for '{name}'"
+                            )
+
+                        # If no notes found anywhere, create a basic note for this person
+                        relationship_type = self._infer_relationship_type(name)
+                        success = self.relationship_manager.add_note(
+                            name, relationship_type, "First mentioned in conversation"
+                        )
+                        if self.debug and success:
+                            print(
+                                f"[DEBUG] Created initial note for {name} as {relationship_type}"
+                            )
+                        return {
+                            "success": True,
+                            "name": name,
+                            "relationship": relationship_type,
+                            "notes": ["First mentioned in conversation"],
+                        }
+            else:
+                return {"success": False, "message": "Name is required"}
+
+        return {"success": False, "message": f"Unknown tool: {tool_name}"}
 
     def _process_modifier_adjustment(self, response: str) -> str:
         """
@@ -281,182 +401,6 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
 
         return processed_response.strip()
 
-    def _process_relationship_action(self, response: str) -> str:
-        """
-        Process any relationship actions in the response.
-
-        Args:
-            response: Lucan's response that may contain relationship actions
-
-        Returns:
-            The processed response with JSON blocks removed
-        """
-        # Pattern for relationship JSON blocks
-        json_pattern = (
-            r'```json\s*(\{[^}]*"action":\s*"(?:add_note|get_notes)"[^}]*\})\s*```'
-        )
-        matches = re.findall(json_pattern, response, re.DOTALL)
-
-        if not matches:
-            return response
-
-        processed_response = response
-
-        for match in matches:
-            if self.debug:
-                print("[DEBUG] Relationship action found:")
-                print(f"'{match}'")
-
-            try:
-                action_data = json.loads(match)
-                action = action_data.get("action")
-
-                if action == "add_note":
-                    name = action_data.get("name", "")
-                    relationship_type = action_data.get("relationship_type", "")
-                    note = action_data.get("note", "")
-
-                    if name and note:
-                        success = self.relationship_manager.add_note(
-                            name, relationship_type, note
-                        )
-                        if self.debug and success:
-                            print(
-                                f"[DEBUG] Added note for {name} ({relationship_type}): {note}"
-                            )
-
-                elif action == "get_notes":
-                    name = action_data.get("name", "")
-                    if name:
-                        notes = self.relationship_manager.get_notes(name)
-                        if self.debug:
-                            if notes:
-                                print(
-                                    f"[DEBUG] Retrieved {len(notes['notes'])} notes for {name}"
-                                )
-                            else:
-                                print(f"[DEBUG] No notes found for {name}")
-
-                        # If no notes found, create a basic note for this person
-                        if not notes:
-                            # Try to infer relationship type from recent conversation context
-                            relationship_type = self._infer_relationship_type(name)
-                            success = self.relationship_manager.add_note(
-                                name,
-                                relationship_type,
-                                "First mentioned in conversation",
-                            )
-                            if self.debug and success:
-                                print(
-                                    f"[DEBUG] Created initial note for {name} as {relationship_type}"
-                                )
-
-                # Remove the JSON block from the response
-                processed_response = processed_response.replace(
-                    f"```json\n{match}\n```", ""
-                )
-
-            except (json.JSONDecodeError, KeyError) as e:
-                if self.debug:
-                    print(f"[DEBUG] Invalid relationship action JSON: {e}")
-                    print(f"[DEBUG] Failed to parse: '{match}'")
-                # Remove invalid JSON block
-                processed_response = processed_response.replace(
-                    f"```json\n{match}\n```", ""
-                )
-
-        return processed_response.strip()
-
-    def _get_relationship_query_context(self, user_message: str) -> str:
-        """
-        Get relationship context when user asks about relationship types.
-
-        Args:
-            user_message: The user's message
-
-        Returns:
-            Relationship context string if relevant relationships are found
-        """
-        message_lower = user_message.lower()
-
-        # Detect relationship type queries
-        relationship_queries = []
-
-        # Common patterns for asking about relationships
-        relationship_patterns = {
-            "mother": ["mom", "mother", "mama"],
-            "father": ["dad", "father", "papa"],
-            "family": ["family", "parents"],
-            "friend": ["friend", "friends"],
-            "therapist": ["therapist", "counselor"],
-            "colleague": ["colleague", "coworker", "boss", "manager"],
-            "pet": ["dog", "cat", "pet"],
-            "partner": [
-                "wife",
-                "husband",
-                "spouse",
-                "partner",
-                "girlfriend",
-                "boyfriend",
-            ],
-        }
-
-        # Look for relationship type mentions
-        for rel_type, keywords in relationship_patterns.items():
-            for keyword in keywords:
-                if keyword in message_lower:
-                    # Check if this looks like a query about that relationship
-                    if any(
-                        query_word in message_lower
-                        for query_word in [
-                            "remember",
-                            "know",
-                            "who is",
-                            "who's",
-                            "tell me about",
-                            "what about",
-                        ]
-                    ):
-                        relationship_queries.append(rel_type)
-                        if self.debug:
-                            print(
-                                f"[DEBUG] Detected relationship query for '{rel_type}' (keyword: '{keyword}')"
-                            )
-                        break
-
-        # Search for people matching those relationship types
-        context_parts = []
-        for rel_type in relationship_queries:
-            results = self.relationship_manager.find_by_relationship_type(rel_type)
-            if self.debug:
-                if results:
-                    names = [r["name"] for r in results]
-                    print(
-                        f"[DEBUG] Found {len(results)} people with relationship '{rel_type}': {names}"
-                    )
-                else:
-                    print(f"[DEBUG] No people found with relationship '{rel_type}'")
-
-            for person in results:
-                if person["notes"]:
-                    recent_notes = person["notes"][-3:]  # Last 3 notes
-                    context_parts.append(
-                        f"- {person['name']} ({person['relationship']}): {'; '.join(recent_notes)}"
-                    )
-
-        if context_parts:
-            if self.debug:
-                print(
-                    f"[DEBUG] Adding relationship context for {len(context_parts)} people to user message"
-                )
-            return (
-                "\n\nRELATIONSHIP CONTEXT (for your query):\n"
-                + "\n".join(context_parts)
-                + "\n"
-            )
-
-        return ""
-
     def send_message(self, user_message: str) -> str:
         """
         Send a message to Lucan and get a response.
@@ -467,14 +411,8 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
         Returns:
             Lucan's response
         """
-        # Check if this looks like a relationship query that needs search
-        relationship_context = self._get_relationship_query_context(user_message)
-
-        # Add user message to history with relationship context if available
-        message_with_context = user_message + relationship_context
-        self.conversation_history.append(
-            {"role": "user", "content": message_with_context}
-        )
+        # Add user message to history
+        self.conversation_history.append({"role": "user", "content": user_message})
 
         try:
             # Rebuild system prompt to include current modifier values
@@ -483,28 +421,106 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
             # Prepare messages for the API
             messages = self.conversation_history.copy()
 
+            # Get tool definitions
+            tools = self._define_tools()
+
             response = self.client.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=1000,
                 system=current_system_prompt,
                 messages=messages,
+                tools=tools,
             )
 
-            # Extract the response text
-            lucan_response = response.content[0].text
+            # Process the response - it might contain tool calls
+            if response.stop_reason == "tool_use":
+                # Handle tool calls
+                tool_results = []
+                assistant_content = []
 
-            # Process any modifier adjustments
-            processed_response = self._process_modifier_adjustment(lucan_response)
+                for content_block in response.content:
+                    if content_block.type == "text":
+                        assistant_content.append(content_block.text)
+                    elif content_block.type == "tool_use":
+                        tool_name = content_block.name
+                        tool_input = content_block.input
+                        tool_id = content_block.id
 
-            # Process any relationship actions
-            processed_response = self._process_relationship_action(processed_response)
+                        if self.debug:
+                            print(
+                                f"[DEBUG] Tool called: {tool_name} with input: {tool_input}"
+                            )
 
-            # Add Lucan's response to history (without the JSON blocks)
-            self.conversation_history.append(
-                {"role": "assistant", "content": processed_response}
-            )
+                        # Execute the tool
+                        tool_result = self._handle_tool_call(tool_name, tool_input)
 
-            return processed_response
+                        tool_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_id,
+                                "content": json.dumps(tool_result),
+                            }
+                        )
+
+                # Add the assistant's message (with tool calls) to history
+                self.conversation_history.append(
+                    {"role": "assistant", "content": response.content}
+                )
+
+                # Add tool results to history
+                if tool_results:
+                    self.conversation_history.append(
+                        {"role": "user", "content": tool_results}
+                    )
+
+                    # Get the follow-up response after tool execution
+                    follow_up_response = self.client.messages.create(
+                        model="claude-sonnet-4-20250514",
+                        max_tokens=1000,
+                        system=current_system_prompt,
+                        messages=self.conversation_history.copy(),
+                        tools=tools,
+                    )
+
+                    # Extract the final response text
+                    final_response = ""
+                    if follow_up_response.content:
+                        for content_block in follow_up_response.content:
+                            if content_block.type == "text":
+                                final_response += content_block.text
+
+                    # Process any modifier adjustments in the final response
+                    processed_response = self._process_modifier_adjustment(
+                        final_response
+                    )
+
+                    # Add the final response to history
+                    self.conversation_history.append(
+                        {"role": "assistant", "content": processed_response}
+                    )
+
+                    return processed_response
+                else:
+                    # No tool results, just return the assistant's text
+                    assistant_text = "".join(assistant_content)
+                    processed_response = self._process_modifier_adjustment(
+                        assistant_text
+                    )
+                    return processed_response
+
+            else:
+                # No tool calls, handle as before
+                lucan_response = response.content[0].text
+
+                # Process any modifier adjustments
+                processed_response = self._process_modifier_adjustment(lucan_response)
+
+                # Add Lucan's response to history
+                self.conversation_history.append(
+                    {"role": "assistant", "content": processed_response}
+                )
+
+                return processed_response
 
         except Exception as e:
             return f"Error communicating with Lucan: {str(e)}"
@@ -534,7 +550,12 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
         # Look at recent conversation context to infer relationship
         recent_messages = self.conversation_history[-3:]  # Last 3 messages for context
         context_text = " ".join(
-            [msg.get("content", "") for msg in recent_messages]
+            [
+                msg.get("content", "")
+                if isinstance(msg.get("content"), str)
+                else str(msg.get("content", ""))
+                for msg in recent_messages
+            ]
         ).lower()
 
         # Common relationship patterns
