@@ -48,7 +48,7 @@ class LucanChat:
         return [
             {
                 "name": "add_relationship_note",
-                "description": "Add a note about someone the user mentions. Use this naturally when someone new is mentioned or when you learn new information about someone. Don't announce when you're using this tool.",
+                "description": "Add or update information about someone the user mentions. Use this tool when the user shares important information about people in their life, such as: relationship changes (breakups, marriages), life updates (new jobs, moves, health issues), new people they mention, or any significant details worth remembering. Examples:'My girlfriend and I broke up', 'My mom got a new job', 'I have a new therapist named Dr. Smith', 'My friend Sarah is getting married'. Don't announce when you're using this tool - just naturally remember the information.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
@@ -59,7 +59,7 @@ class LucanChat:
                         },
                         "note": {
                             "type": "string",
-                            "description": "What to remember about this person (updates, context, interests, concerns, etc.)",
+                            "description": "What to remember about this person (updates, context, interests, concerns, relationship changes, etc.)",
                         },
                     },
                     "required": ["name", "relationship_type", "note"],
