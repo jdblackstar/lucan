@@ -7,6 +7,7 @@ from typing import Dict, List
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+from .config import RELATIONSHIPS_DIR
 from .loader import Lucan
 from .relationships import RelationshipManager
 
@@ -33,8 +34,7 @@ class LucanChat:
         self.debug = debug
 
         # Initialize relationship manager
-        relationships_dir = Path(persona_path).parent.parent / "relationships"
-        self.relationship_manager = RelationshipManager(relationships_dir)
+        self.relationship_manager = RelationshipManager(RELATIONSHIPS_DIR)
 
         self.system_prompt = self._build_system_prompt()
 
