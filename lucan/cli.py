@@ -9,12 +9,25 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
 
+from .config import (
+    CLEAR_COMMAND,
+    EXIT_COMMANDS,
+    HELP_COMMANDS,
+    PERSONA_TEMPLATE_DIR,
+    PERSONAS_DIR,
+    ConsoleStyles,
+    DebugConfig,
+    Messages,
+    PanelTitles,
+    get_default_persona_path,
+    get_persona_files,
+)
 from .core import LucanChat
 
 
 def _get_personas_directory() -> Path:
     """Get the path to the personas directory."""
-    return Path(__file__).parent.parent / "memory" / "personas"
+    return PERSONAS_DIR
 
 
 def _list_available_personas() -> list[str]:
@@ -31,11 +44,11 @@ def _list_available_personas() -> list[str]:
         return available_personas
 
     for persona_dir in personas_dir.iterdir():
-        if persona_dir.is_dir() and persona_dir.name != "template":
-            personality_file = persona_dir / "personality.txt"
-            modifiers_file = persona_dir / "modifiers.txt"
+        # Skip template directory
+        if persona_dir.is_dir() and persona_dir.name != PERSONA_TEMPLATE_DIR:
+            persona_files = get_persona_files(persona_dir)
 
-            if personality_file.exists() and modifiers_file.exists():
+            if all(file_path.exists() for file_path in persona_files.values()):
                 available_personas.append(persona_dir.name)
 
     return sorted(available_personas)
@@ -59,30 +72,33 @@ def _resolve_persona_path(persona_input: str) -> Path:
         persona_path = Path(persona_input)
     else:
         # Treat it as a persona name
-        persona_path = _get_personas_directory() / persona_input
+        persona_path = PERSONAS_DIR / persona_input
 
     # Verify the persona exists and is valid
     if not persona_path.exists():
         available = _list_available_personas()
         available_text = ", ".join(available) if available else "none"
         raise FileNotFoundError(
-            f"Persona '{persona_input}' not found. Available personas: {available_text}"
+            Messages.PERSONA_NOT_FOUND.format(
+                persona=persona_input, available=available_text
+            )
         )
 
     if not persona_path.is_dir():
-        raise FileNotFoundError(f"Persona path '{persona_path}' is not a directory")
-
-    personality_file = persona_path / "personality.txt"
-    modifiers_file = persona_path / "modifiers.txt"
-
-    if not personality_file.exists():
         raise FileNotFoundError(
-            f"Persona '{persona_input}' is missing personality.txt file"
+            Messages.PERSONA_NOT_DIRECTORY.format(path=persona_path)
         )
 
-    if not modifiers_file.exists():
+    persona_files = get_persona_files(persona_path)
+
+    if not persona_files["personality"].exists():
         raise FileNotFoundError(
-            f"Persona '{persona_input}' is missing modifiers.txt file"
+            Messages.MISSING_PERSONALITY_FILE.format(persona=persona_input)
+        )
+
+    if not persona_files["modifiers"].exists():
+        raise FileNotFoundError(
+            Messages.MISSING_MODIFIERS_FILE.format(persona=persona_input)
         )
 
     return persona_path
@@ -105,9 +121,7 @@ class LucanCLI:
         self.debug = debug
 
         if persona_path is None:
-            persona_path = (
-                Path(__file__).parent.parent / "memory" / "personas" / "lucan"
-            )
+            persona_path = get_default_persona_path()
         else:
             persona_path = Path(persona_path)
 
@@ -125,22 +139,24 @@ class LucanCLI:
         Display the currently loaded modifier values for debugging.
         """
         modifiers = self.chat.lucan.modifiers
-        debug_text = "**Loaded Modifiers:**\n\n"
+        debug_text = DebugConfig.MODIFIERS_HEADER
 
         for key, value in modifiers.items():
-            debug_text += f"- **{key}**: `{value}`\n"
+            debug_text += DebugConfig.MODIFIER_ITEM.format(key=key, value=value)
 
         if not modifiers:
-            debug_text += "*No modifiers loaded*\n"
+            debug_text += DebugConfig.NO_MODIFIERS_TEXT
 
-        debug_text += f"\n*Modifiers file: {self.chat.lucan.modifiers_file}*"
+        debug_text += DebugConfig.MODIFIERS_FILE_PATH.format(
+            path=self.chat.lucan.modifiers_file
+        )
 
         self.console.print(
             Panel(
                 Markdown(debug_text),
-                title="🔧 Debug - Modifier Values",
-                border_style="yellow",
-                padding=(1, 2),
+                title=PanelTitles.MODIFIER_DEBUG_TITLE,
+                border_style=ConsoleStyles.MODIFIER_DEBUG_BORDER,
+                padding=DebugConfig.PANEL_PADDING,
             )
         )
 
@@ -153,9 +169,9 @@ class LucanCLI:
         self.console.print(
             Panel(
                 system_prompt,
-                title="🔧 Debug - Generated System Prompt",
-                border_style="magenta",
-                padding=(1, 2),
+                title=PanelTitles.SYSTEM_PROMPT_DEBUG_TITLE,
+                border_style=ConsoleStyles.SYSTEM_PROMPT_DEBUG_BORDER,
+                padding=DebugConfig.PANEL_PADDING,
             )
         )
 
@@ -166,15 +182,15 @@ class LucanCLI:
         persona_name = self.chat.lucan.personality.get("name", "Lucan")
 
         welcome_text = Text()
-        welcome_text.append("Welcome to ", style="white")
-        welcome_text.append(persona_name, style="bold cyan")
-        welcome_text.append(" - your loyal AI friend", style="white")
+        welcome_text.append(Messages.WELCOME_PREFIX, style="white")
+        welcome_text.append(persona_name, style=ConsoleStyles.PERSONA_NAME_STYLE)
+        welcome_text.append(Messages.WELCOME_SUFFIX, style="white")
 
         panel = Panel(
             welcome_text,
-            title=f"🤖 {persona_name} Chat",
-            subtitle="Type 'quit', 'exit', or 'bye' to leave • '/clear' to reset conversation",
-            border_style="cyan",
+            title=PanelTitles.WELCOME_TITLE.format(persona_name=persona_name),
+            subtitle=PanelTitles.WELCOME_SUBTITLE,
+            border_style=ConsoleStyles.WELCOME_BORDER,
         )
         self.console.print(panel)
 
@@ -192,19 +208,29 @@ class LucanCLI:
             self.console.print(
                 Panel(
                     Markdown(message),
-                    title=f"💭 {persona_name}",
-                    border_style="green",
-                    padding=(1, 2),
+                    title=PanelTitles.LUCAN_RESPONSE_TITLE.format(
+                        persona_name=persona_name
+                    ),
+                    border_style=ConsoleStyles.LUCAN_RESPONSE_BORDER,
+                    padding=DebugConfig.PANEL_PADDING,
                 )
             )
         else:
-            self.console.print(f"[dim]{message}[/dim]")
+            self.console.print(
+                Panel(
+                    Markdown(message),
+                    title=PanelTitles.DEBUG_TITLE,
+                    border_style=ConsoleStyles.DEBUG_BORDER,
+                    padding=DebugConfig.PANEL_PADDING,
+                )
+            )
+            # self.console.print(f"[dim]{message}[/dim]") # previous version
 
     def _get_user_input(self) -> str:
         """
         Get input from the user with a nice prompt.
         """
-        return Prompt.ask("[bold blue]You[/bold blue]", console=self.console)
+        return Prompt.ask(ConsoleStyles.USER_PROMPT_STYLE, console=self.console)
 
     def _handle_command(self, user_input: str) -> bool:
         """
@@ -218,34 +244,26 @@ class LucanCLI:
         """
         command = user_input.strip().lower()
 
-        if command in ["quit", "exit", "bye"]:
-            self.console.print("[dim]Goodbye! Take care.[/dim]")
+        if command in EXIT_COMMANDS:
+            self.console.print(
+                f"[{ConsoleStyles.DIM_STYLE}]{Messages.GOODBYE_MESSAGE}[/{ConsoleStyles.DIM_STYLE}]"
+            )
             return True
-        elif command == "/clear":
+        elif command == CLEAR_COMMAND:
             self.chat.clear_history()
             self.console.clear()
             self._display_welcome()
-            self.console.print("[dim]Conversation history cleared.[/dim]")
-            return False
-        elif command in ["/help", "help"]:
-            help_text = """
-            **Available commands:**
-            - `/clear` - Clear conversation history
-            - `/help` - Show this help message  
-            - `quit`, `exit`, or `bye` - Exit the chat
-
-            **Persona selection:**
-            - Use `--persona <name>` when starting to choose a different persona
-            - Use `--list-personas` to see all available personas
-
-            **Tips:**
-            - Lucan responds best to direct, honest communication
-            - Try asking about goals, challenges, or decisions you're facing
-            - Lucan will challenge you constructively to help you grow
-            - Say things like "be more supportive" or "be less verbose" to adjust communication style
-            """
             self.console.print(
-                Panel(Markdown(help_text), title="Help", border_style="yellow")
+                f"[{ConsoleStyles.DIM_STYLE}]{Messages.CONVERSATION_CLEARED}[/{ConsoleStyles.DIM_STYLE}]"
+            )
+            return False
+        elif command in HELP_COMMANDS:
+            self.console.print(
+                Panel(
+                    Markdown(Messages.HELP_TEXT),
+                    title=PanelTitles.HELP_TITLE,
+                    border_style=ConsoleStyles.HELP_BORDER,
+                )
             )
             return False
 
@@ -271,16 +289,22 @@ class LucanCLI:
 
                 # Get response from Lucan
                 persona_name = self.chat.lucan.personality.get("name", "Lucan")
-                with self.console.status(f"[dim]{persona_name} is thinking...[/dim]"):
+                with self.console.status(
+                    f"[{ConsoleStyles.DIM_STYLE}]{Messages.THINKING_STATUS.format(persona_name=persona_name)}[/{ConsoleStyles.DIM_STYLE}]"
+                ):
                     response = self.chat.send_message(user_input)
 
                 # Display Lucan's response
                 self._display_message(response)
 
         except KeyboardInterrupt:
-            self.console.print("\n[dim]Chat interrupted. Goodbye![/dim]")
+            self.console.print(
+                f"\n[{ConsoleStyles.DIM_STYLE}]{Messages.CHAT_INTERRUPTED}[/{ConsoleStyles.DIM_STYLE}]"
+            )
         except Exception as e:
-            self.console.print(f"[red]An error occurred: {str(e)}[/red]")
+            self.console.print(
+                f"[{ConsoleStyles.ERROR_STYLE}]{Messages.GENERIC_ERROR.format(error=str(e))}[/{ConsoleStyles.ERROR_STYLE}]"
+            )
             sys.exit(1)
 
 
@@ -291,14 +315,7 @@ def _run_cli() -> None:
     parser = argparse.ArgumentParser(
         description="Lucan CLI - Your adaptive AI friend",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python main.py                    # Use default Lucan persona
-  python main.py --persona coach    # Use the coach persona
-  python main.py --persona memory/personas/therapist  # Use full path
-  python main.py --list-personas    # Show available personas
-  python main.py --debug            # Enable debug mode
-        """.strip(),
+        epilog=Messages.CLI_EXAMPLES.strip(),
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument(
@@ -318,15 +335,19 @@ Examples:
         available_personas = _list_available_personas()
 
         if not available_personas:
-            console.print("[yellow]No personas found in memory/personas/[/yellow]")
             console.print(
-                "[dim]Create personas using the template in memory/personas/template/[/dim]"
+                f"[{ConsoleStyles.WARNING_STYLE}]{Messages.NO_PERSONAS_FOUND}[/{ConsoleStyles.WARNING_STYLE}]"
+            )
+            console.print(
+                f"[{ConsoleStyles.DIM_STYLE}]Create personas using the template in memory/personas/template/[/{ConsoleStyles.DIM_STYLE}]"
             )
         else:
-            console.print("[bold]Available Personas:[/bold]")
+            console.print(f"[bold]{PanelTitles.AVAILABLE_PERSONAS_TITLE}[/bold]")
             for persona in available_personas:
                 console.print(f"  • {persona}")
-            console.print("\n[dim]Use with: python main.py --persona <name>[/dim]")
+            console.print(
+                f"\n[{ConsoleStyles.DIM_STYLE}]Use with: python main.py --persona <name>[/{ConsoleStyles.DIM_STYLE}]"
+            )
 
         return
 
@@ -337,8 +358,12 @@ Examples:
             persona_path = _resolve_persona_path(args.persona)
         except FileNotFoundError as e:
             console = Console()
-            console.print(f"[red]Error: {e}[/red]")
-            console.print("[dim]Use --list-personas to see available options[/dim]")
+            console.print(
+                f"[{ConsoleStyles.ERROR_STYLE}]Error: {e}[/{ConsoleStyles.ERROR_STYLE}]"
+            )
+            console.print(
+                f"[{ConsoleStyles.DIM_STYLE}]Use --list-personas to see available options[/{ConsoleStyles.DIM_STYLE}]"
+            )
             sys.exit(1)
 
     # Create and run CLI
