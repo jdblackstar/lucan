@@ -46,9 +46,10 @@ class Lucan:
         # Enforce bounds [-3, +3]
         if value < -3:
             value = -3
+            print(f"Modifier {key} set to -3")
         elif value > 3:
             value = 3
-
+            print(f"Modifier {key} set to 3")
         old_value = self.modifiers[key]
         self.modifiers[key] = value
         self.save_modifiers()
