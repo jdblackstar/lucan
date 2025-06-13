@@ -11,4 +11,8 @@ dependencies = [
     "pyyaml>=6.0",
     "python-dotenv>=1.0.0",
     "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "textblob>=0.17.0",
+    "numpy>=1.24.0",
+    "openai>=1.0.0",
 ]
