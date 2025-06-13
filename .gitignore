@@ -16,5 +16,8 @@ wheels/
 # Sensitive stuff
 .env
 
+# Eval stuff
+eqbench_results/
+
 # Personal User Information
 memory/relationships/
