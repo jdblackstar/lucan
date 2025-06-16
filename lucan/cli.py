@@ -200,11 +200,15 @@ class LucanCLI:
 
         Args:
             message: The message to display
-            sender: Either 'lucan' or 'system'
+            sender: The sender of the message (default: "lucan")
         """
+        if not message:
+            if self.debug:
+                print("[DEBUG] CLI: Received empty message from chat system")
+            message = "[System: Empty response - please try again]"
+
         if sender == "lucan":
             persona_name = self.chat.lucan.personality.get("name", "Lucan")
-            # Display Lucan's response as markdown for better formatting
             self.console.print(
                 Panel(
                     Markdown(message),
@@ -212,19 +216,17 @@ class LucanCLI:
                         persona_name=persona_name
                     ),
                     border_style=ConsoleStyles.LUCAN_RESPONSE_BORDER,
-                    padding=DebugConfig.PANEL_PADDING,
                 )
             )
         else:
+            # System messages or other senders
             self.console.print(
                 Panel(
-                    Markdown(message),
-                    title=PanelTitles.DEBUG_TITLE,
+                    message,
+                    title=f"💬 {sender.title()}",
                     border_style=ConsoleStyles.DEBUG_BORDER,
-                    padding=DebugConfig.PANEL_PADDING,
                 )
             )
-            # self.console.print(f"[dim]{message}[/dim]") # previous version
 
     def _get_user_input(self) -> str:
         """

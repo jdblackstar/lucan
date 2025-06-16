@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from collections import deque
 from pathlib import Path
 from typing import Dict, List
 
@@ -8,11 +9,55 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 
 from .config import RELATIONSHIPS_DIR
+from .goals import GoalManager
 from .loader import Lucan
 from .relationships import RelationshipManager
+from .tools import ToolManager
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Import sidecar metrics (optional - degrade gracefully if not available)
+try:
+    import sys
+
+    sys.path.append(str(Path(__file__).parent.parent / "eval"))
+    from metrics import DRIFLAG, GCS, TD10
+
+    METRICS_AVAILABLE = True
+except ImportError as e:
+    METRICS_AVAILABLE = False
+    if "OPENAI_API_KEY" not in os.environ:
+        print("[INFO] Sidecar metrics disabled - OpenAI API key not found")
+    else:
+        print(f"[WARNING] Sidecar metrics disabled - import error: {e}")
+
+WINDOW_SIZE = 10  # Number of bot messages to keep for evaluation
+
+
+class _InMemorySidecarStore:
+    """
+    Simple in-memory store for sidecar events and warnings.
+    Not safe for multi-process use. For local/dev only.
+    """
+
+    _events: list[dict] = []
+    _warnings: dict[str, dict] = {}
+
+    @classmethod
+    def publish_event(cls, event: dict) -> None:
+        cls._events.append(event)
+
+    @classmethod
+    def set_warning(cls, conv_id: str, note: str, severity: str) -> None:
+        cls._warnings[conv_id] = {"note": note, "severity": severity}
+
+    @classmethod
+    def get_warning(cls, conv_id: str) -> str | None:
+        data = cls._warnings.get(conv_id)
+        if data and data.get("severity") in ("warn", "block"):
+            return data.get("note")
+        return None
 
 
 class LucanChat:
@@ -20,23 +65,68 @@ class LucanChat:
     Core chat functionality for the Lucan AI friend.
     """
 
-    def __init__(self, persona_path: str | Path, debug: bool = False):
+    def __init__(
+        self, persona_path: str | Path, debug: bool = False, conv_id: str | None = None
+    ):
         """
         Initialize the chat with a persona from the given path.
 
         Args:
             persona_path: Path to the persona directory containing personality.txt and modifiers.txt
             debug: Whether to enable debug output for development
+            conv_id: Unique conversation ID
         """
         self.client = Anthropic(api_key=os.getenv("ANTHROPIC_KEY"))
         self.lucan = Lucan(Path(persona_path))
         self.conversation_history: List[Dict[str, str]] = []
         self.debug = debug
+        self.conv_id = "default"  # Only one conversation in CLI
+        self._sidecar_warning: str | None = None
 
         # Initialize relationship manager
         self.relationship_manager = RelationshipManager(RELATIONSHIPS_DIR)
 
+        # Initialize goal manager
+        self.goal_manager = GoalManager(debug=self.debug)
+
+        # Initialize tool manager
+        self.tool_manager = ToolManager(
+            relationship_manager=self.relationship_manager,
+            goal_manager=self.goal_manager,
+            debug=self.debug,
+        )
+
+        # Sidecar evaluation components
+        self._conversation_window = deque(
+            maxlen=WINDOW_SIZE
+        )  # Bot messages for evaluation
+        self._metrics_initialized = False
+        self._metrics = []
+
         self.system_prompt = self._build_system_prompt()
+
+    def _initialize_metrics(self) -> None:
+        """
+        Initialize sidecar metrics on first use.
+        """
+        if self._metrics_initialized or not METRICS_AVAILABLE:
+            return
+
+        try:
+            # Initialize metrics
+            self._metrics = [
+                GCS(self.goal_manager.get_goal_cache()),  # Goal consistency
+                TD10(),  # Sentiment trajectory
+                DRIFLAG(),  # Dependency/isolation risk
+            ]
+            self._metrics_initialized = True
+
+            if self.debug:
+                print("[DEBUG] Sidecar metrics initialized")
+        except Exception as e:
+            if self.debug:
+                print(f"[DEBUG] Failed to initialize metrics: {e}")
+            self._metrics = []
 
     def _define_tools(self) -> List[Dict]:
         """
@@ -45,41 +135,7 @@ class LucanChat:
         Returns:
             List of tool definitions for the Anthropic API
         """
-        return [
-            {
-                "name": "add_relationship_note",
-                "description": "Add or update information about someone the user mentions. Use this tool when the user shares important information about people in their life, such as: relationship changes (breakups, marriages), life updates (new jobs, moves, health issues), new people they mention, or any significant details worth remembering. Examples:'My girlfriend and I broke up', 'My mom got a new job', 'I have a new therapist named Dr. Smith', 'My friend Sarah is getting married'. Don't announce when you're using this tool - just naturally remember the information.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string", "description": "The person's name"},
-                        "relationship_type": {
-                            "type": "string",
-                            "description": "Their relationship to the user (e.g., friend, family, colleague, therapist, pet, partner, etc.)",
-                        },
-                        "note": {
-                            "type": "string",
-                            "description": "What to remember about this person (updates, context, interests, concerns, relationship changes, etc.)",
-                        },
-                    },
-                    "required": ["name", "relationship_type", "note"],
-                },
-            },
-            {
-                "name": "get_relationship_notes",
-                "description": "Look up information about someone the user asks about. Use this tool when the user asks questions like 'Do you know my mom?', 'Tell me about Sarah', 'Do you remember my therapist?', 'What do you know about my friend John?', etc. You can search by either a person's name (like 'Sarah') or by relationship type (like 'mom', 'therapist', 'friend'). Don't announce when you're using this tool - just naturally recall the information.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "The person's name OR their relationship type (e.g., 'Sarah', 'mom', 'therapist', 'friend', 'dog')",
-                        }
-                    },
-                    "required": ["name"],
-                },
-            },
-        ]
+        return self.tool_manager.get_tool_definitions()
 
     def _build_system_prompt(self) -> str:
         """
@@ -214,93 +270,23 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
         Returns:
             Dict containing the tool result
         """
-        if tool_name == "add_relationship_note":
-            name = tool_input.get("name", "")
-            relationship_type = tool_input.get("relationship_type", "")
-            note = tool_input.get("note", "")
-
-            if name and note:
-                success = self.relationship_manager.add_note(
-                    name, relationship_type, note
-                )
-                if self.debug:
-                    print(
-                        f"[DEBUG] Added note for {name} ({relationship_type}): {note}"
+        # Special handling for get_relationship_notes to use _infer_relationship_type
+        if tool_name == "get_relationship_notes" and "name" in tool_input:
+            result = self.tool_manager.handle_tool_call(tool_name, tool_input)
+            # If ToolManager created a new note with generic type, update it
+            if result.get("success") and result.get("relationship") == "person":
+                inferred_type = self._infer_relationship_type(tool_input["name"])
+                if inferred_type != "person":
+                    # Update the relationship type with context
+                    self.relationship_manager.add_note(
+                        tool_input["name"],
+                        inferred_type,
+                        "Relationship type inferred from context",
                     )
-                return {"success": success, "message": f"Added note for {name}"}
-            else:
-                return {"success": False, "message": "Missing required fields"}
-
-        elif tool_name == "get_relationship_notes":
-            name = tool_input.get("name", "")
-            if name:
-                # First try direct name lookup
-                notes = self.relationship_manager.get_notes(name)
-                if self.debug:
-                    if notes:
-                        print(
-                            f"[DEBUG] Retrieved {len(notes['notes'])} notes for {name}"
-                        )
-                    else:
-                        print(f"[DEBUG] No notes found for {name}")
-
-                if notes:
-                    return {
-                        "success": True,
-                        "name": notes["name"],
-                        "relationship": notes["relationship"],
-                        "notes": notes["notes"],
-                    }
-                else:
-                    # If no direct name match, try searching by relationship type
-                    if self.debug:
-                        print(f"[DEBUG] Trying relationship type search for '{name}'")
-
-                    relationship_results = (
-                        self.relationship_manager.find_by_relationship_type(name)
-                    )
-
-                    if relationship_results:
-                        if self.debug:
-                            names = [r["name"] for r in relationship_results]
-                            print(
-                                f"[DEBUG] Found {len(relationship_results)} people with relationship '{name}': {names}"
-                            )
-
-                        # Return the first match (could be enhanced to return all matches)
-                        first_match = relationship_results[0]
-                        return {
-                            "success": True,
-                            "name": first_match["name"],
-                            "relationship": first_match["relationship"],
-                            "notes": first_match["notes"],
-                            "found_by": "relationship_type",  # Indicate how it was found
-                        }
-                    else:
-                        if self.debug:
-                            print(
-                                f"[DEBUG] No relationship type matches found for '{name}'"
-                            )
-
-                        # If no notes found anywhere, create a basic note for this person
-                        relationship_type = self._infer_relationship_type(name)
-                        success = self.relationship_manager.add_note(
-                            name, relationship_type, "First mentioned in conversation"
-                        )
-                        if self.debug and success:
-                            print(
-                                f"[DEBUG] Created initial note for {name} as {relationship_type}"
-                            )
-                        return {
-                            "success": True,
-                            "name": name,
-                            "relationship": relationship_type,
-                            "notes": ["First mentioned in conversation"],
-                        }
-            else:
-                return {"success": False, "message": "Name is required"}
-
-        return {"success": False, "message": f"Unknown tool: {tool_name}"}
+                    result["relationship"] = inferred_type
+            return result
+        else:
+            return self.tool_manager.handle_tool_call(tool_name, tool_input)
 
     def _process_modifier_adjustment(self, response: str) -> str:
         """
@@ -401,6 +387,193 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
 
         return processed_response.strip()
 
+    def _publish_sidecar_event(self, user_text: str, bot_text: str) -> None:
+        """
+        Publish a chat event to the in-memory sidecar store and run sidecar evaluation.
+        """
+        event = {
+            "conv_id": self.conv_id,
+            "user": user_text,
+            "bot": bot_text,
+            "user_goals": self.goal_manager.get_active_goals(),  # Include current goals
+        }
+        _InMemorySidecarStore.publish_event(event)
+
+        # Add bot message to conversation window for evaluation
+        self._conversation_window.append(bot_text)
+
+        # Run sidecar evaluation if metrics are available
+        if METRICS_AVAILABLE and len(self._conversation_window) >= 2:
+            self._run_sidecar_evaluation()
+
+        if self.debug:
+            print(f"[DEBUG] Published sidecar event for conversation '{self.conv_id}'")
+            print(f"[DEBUG] User message length: {len(user_text)} chars")
+            print(f"[DEBUG] Bot response length: {len(bot_text)} chars")
+            print(
+                f"[DEBUG] Total events in store: {len(_InMemorySidecarStore._events)}"
+            )
+            print(f"[DEBUG] Conversation window size: {len(self._conversation_window)}")
+            if len(_InMemorySidecarStore._warnings) > 0:
+                print(
+                    f"[DEBUG] Total warnings in store: {len(_InMemorySidecarStore._warnings)}"
+                )
+
+    def _run_sidecar_evaluation(self) -> None:
+        """
+        Run sidecar metrics evaluation synchronously (simplified version).
+        """
+        self._initialize_metrics()
+
+        if not self._metrics:
+            return
+
+        # For now, we'll do a simplified synchronous evaluation
+        # In production, this could be moved to a background task
+        failures = []
+
+        try:
+            # TD10 (sentiment trajectory) - synchronous, no API calls needed
+            td10 = next((m for m in self._metrics if isinstance(m, TD10)), None)
+            if td10:
+                # Simple sentiment analysis without async
+                from textblob import TextBlob
+
+                if len(self._conversation_window) >= 3:
+                    sentiments = [
+                        TextBlob(msg).sentiment.polarity
+                        for msg in self._conversation_window
+                    ]
+                    recent_window = (
+                        sentiments[-5:] if len(sentiments) >= 5 else sentiments
+                    )
+
+                    if len(recent_window) >= 2:
+                        import numpy as np
+
+                        x_vals = list(range(len(recent_window)))
+                        trend_slope = np.polyfit(x_vals, recent_window, 1)[0]
+                        overall_delta = sentiments[-1] - sentiments[0]
+
+                        if trend_slope < -0.1 or overall_delta < -0.3:
+                            failures.append(
+                                f"Negative emotional trajectory: trend={trend_slope:.2f}, delta={overall_delta:.2f}"
+                            )
+
+            # For GCS and DRIFLAG, we'd need async API calls
+            # For now, we'll skip these to keep it simple
+            # TODO: Implement async evaluation in background
+
+        except Exception as e:
+            if self.debug:
+                print(f"[DEBUG] Sidecar evaluation error: {e}")
+            return
+
+        # Set warning if any metrics failed
+        if failures:
+            severity = (
+                "block" if any("dependence" in f.lower() for f in failures) else "warn"
+            )
+            warning_note = "; ".join(failures)
+            _InMemorySidecarStore.set_warning(self.conv_id, warning_note, severity)
+
+            if self.debug:
+                print(f"[DEBUG] Sidecar warning set: {warning_note}")
+        elif self.debug:
+            print("[DEBUG] Sidecar evaluation passed - no warnings")
+
+    def _fetch_sidecar_warning(self) -> str | None:
+        """
+        Fetch a warning note from the in-memory sidecar store for this conversation, if any.
+        """
+        warning = _InMemorySidecarStore.get_warning(self.conv_id)
+
+        if self.debug:
+            if warning:
+                print(
+                    f"[DEBUG] Fetched sidecar warning for conversation '{self.conv_id}': {warning}"
+                )
+            else:
+                print(
+                    f"[DEBUG] No sidecar warning found for conversation '{self.conv_id}'"
+                )
+
+        return warning
+
+    def _get_metrics_summary(self) -> str:
+        """
+        Generate a summary of current conversation metrics.
+
+        Returns:
+            Formatted string with metric scores and status
+        """
+        if not METRICS_AVAILABLE or len(self._conversation_window) < 2:
+            return "Metrics: insufficient data"
+
+        summary_parts = []
+
+        try:
+            # Sentiment trajectory (TD10) - synchronous analysis
+            if len(self._conversation_window) >= 3:
+                from textblob import TextBlob
+
+                sentiments = [
+                    TextBlob(msg).sentiment.polarity
+                    for msg in self._conversation_window
+                ]
+                recent_window = sentiments[-5:] if len(sentiments) >= 5 else sentiments
+
+                if len(recent_window) >= 2:
+                    import numpy as np
+
+                    x_vals = list(range(len(recent_window)))
+                    trend_slope = np.polyfit(x_vals, recent_window, 1)[0]
+                    current_sentiment = sentiments[-1]
+
+                    # Format sentiment with trend indicator
+                    trend_arrow = (
+                        "↗️"
+                        if trend_slope > 0.05
+                        else "↘️"
+                        if trend_slope < -0.05
+                        else "→"
+                    )
+                    sentiment_status = (
+                        "pos"
+                        if current_sentiment > 0.1
+                        else "neg"
+                        if current_sentiment < -0.1
+                        else "neu"
+                    )
+                    summary_parts.append(
+                        f"Sentiment: {current_sentiment:+.2f} {trend_arrow} ({sentiment_status})"
+                    )
+
+            # Goal consistency - show active goals
+            summary_parts.append(self.goal_manager.get_goals_summary())
+
+            # Risk assessment (simplified)
+            window_text = " ".join(list(self._conversation_window)[-3:])
+            risk_keywords = [
+                "alone",
+                "only one",
+                "can't cope",
+                "nobody understands",
+                "isolated",
+            ]
+            risk_count = sum(
+                1 for keyword in risk_keywords if keyword in window_text.lower()
+            )
+            risk_level = (
+                "high" if risk_count >= 2 else "med" if risk_count == 1 else "low"
+            )
+            summary_parts.append(f"Risk: {risk_level}")
+
+        except Exception as e:
+            return f"Metrics: error ({str(e)[:30]})"
+
+        return "Metrics: " + " | ".join(summary_parts)
+
     def send_message(self, user_message: str) -> str:
         """
         Send a message to Lucan and get a response.
@@ -411,6 +584,21 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
         Returns:
             Lucan's response
         """
+        # Show metrics summary in debug mode
+        if self.debug and len(self._conversation_window) >= 1:
+            metrics_summary = self._get_metrics_summary()
+            print(f"[DEBUG] {metrics_summary}")
+
+        # Fetch any warning from sidecar and inject as system message
+        warning = self._fetch_sidecar_warning()
+        if warning:
+            self.conversation_history.append(
+                {"role": "system", "content": f"[COACH WARNING] {warning}"}
+            )
+            self._sidecar_warning = warning
+        else:
+            self._sidecar_warning = None
+
         # Add user message to history
         self.conversation_history.append({"role": "user", "content": user_message})
 
@@ -473,6 +661,14 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
                         {"role": "user", "content": tool_results}
                     )
 
+                    if self.debug:
+                        print(
+                            f"[DEBUG] Conversation history length before follow-up: {len(self.conversation_history)}"
+                        )
+                        print(
+                            f"[DEBUG] Last message in history: {self.conversation_history[-1]}"
+                        )
+
                     # Get the follow-up response after tool execution
                     follow_up_response = self.client.messages.create(
                         model="claude-sonnet-4-20250514",
@@ -482,12 +678,112 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
                         tools=tools,
                     )
 
-                    # Extract the final response text
-                    final_response = ""
-                    if follow_up_response.content:
+                    if self.debug:
+                        print(
+                            f"[DEBUG] Follow-up response stop reason: {follow_up_response.stop_reason}"
+                        )
+                        print(
+                            f"[DEBUG] Follow-up response content blocks: {len(follow_up_response.content)}"
+                        )
+
+                    # Handle chained tool calls - Claude wants to make another tool call
+                    if follow_up_response.stop_reason == "tool_use":
+                        if self.debug:
+                            print(
+                                "[DEBUG] Follow-up response contains additional tool calls - handling recursively"
+                            )
+
+                        # Process the additional tool calls
+                        additional_tool_results = []
+                        follow_up_assistant_content = []
+
                         for content_block in follow_up_response.content:
                             if content_block.type == "text":
-                                final_response += content_block.text
+                                follow_up_assistant_content.append(content_block.text)
+                            elif content_block.type == "tool_use":
+                                tool_name = content_block.name
+                                tool_input = content_block.input
+                                tool_id = content_block.id
+
+                                if self.debug:
+                                    print(
+                                        f"[DEBUG] Additional tool called: {tool_name} with input: {tool_input}"
+                                    )
+
+                                # Execute the additional tool
+                                tool_result = self._handle_tool_call(
+                                    tool_name, tool_input
+                                )
+                                additional_tool_results.append(
+                                    {
+                                        "type": "tool_result",
+                                        "tool_use_id": tool_id,
+                                        "content": json.dumps(tool_result),
+                                    }
+                                )
+
+                        # Add the follow-up assistant message (with additional tool calls) to history
+                        self.conversation_history.append(
+                            {"role": "assistant", "content": follow_up_response.content}
+                        )
+
+                        # Add additional tool results to history
+                        if additional_tool_results:
+                            self.conversation_history.append(
+                                {"role": "user", "content": additional_tool_results}
+                            )
+
+                            # Get the final response after all tool calls
+                            final_follow_up_response = self.client.messages.create(
+                                model="claude-sonnet-4-20250514",
+                                max_tokens=1000,
+                                system=current_system_prompt,
+                                messages=self.conversation_history.copy(),
+                                tools=tools,
+                            )
+
+                            if self.debug:
+                                print(
+                                    f"[DEBUG] Final follow-up response stop reason: {final_follow_up_response.stop_reason}"
+                                )
+
+                            # Extract the final response text
+                            final_response = ""
+                            if final_follow_up_response.content:
+                                for content_block in final_follow_up_response.content:
+                                    if content_block.type == "text":
+                                        final_response += content_block.text
+                        else:
+                            # No additional tool results, use any text from follow-up response
+                            final_response = "".join(follow_up_assistant_content)
+
+                    else:
+                        # Standard case - follow-up response contains text
+                        final_response = ""
+                        if follow_up_response.content:
+                            for content_block in follow_up_response.content:
+                                if content_block.type == "text":
+                                    final_response += content_block.text
+                                    if self.debug:
+                                        print(
+                                            f"[DEBUG] Adding text block: '{content_block.text[:100]}...'"
+                                        )
+
+                    if self.debug:
+                        print(f"[DEBUG] Final response length: {len(final_response)}")
+                        if not final_response:
+                            print("[DEBUG] WARNING: Final response is empty!")
+
+                    # Handle empty response case
+                    if not final_response:
+                        if self.debug:
+                            print(
+                                "[DEBUG] Attempting recovery: using assistant_content from initial response"
+                            )
+                        final_response = (
+                            "".join(assistant_content)
+                            or "I received the information but encountered an issue generating a response. Could you please try again?"
+                        )
 
                     # Process any modifier adjustments in the final response
                     processed_response = self._process_modifier_adjustment(
@@ -499,6 +795,8 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
                         {"role": "assistant", "content": processed_response}
                     )
 
+                    # After Lucan's response is generated, publish event to sidecar
+                    self._publish_sidecar_event(user_message, processed_response)
                     return processed_response
                 else:
                     # No tool results, just return the assistant's text
@@ -506,6 +804,8 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
                     processed_response = self._process_modifier_adjustment(
                         assistant_text
                     )
+                    # After Lucan's response is generated, publish event to sidecar
+                    self._publish_sidecar_event(user_message, processed_response)
                     return processed_response
 
             else:
@@ -520,6 +820,8 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
                     {"role": "assistant", "content": processed_response}
                 )
 
+                # After Lucan's response is generated, publish event to sidecar
+                self._publish_sidecar_event(user_message, processed_response)
                 return processed_response
 
         except Exception as e:
