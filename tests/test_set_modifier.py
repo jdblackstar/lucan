@@ -3,15 +3,20 @@
 
 from pathlib import Path
 
+import pytest
+
 from lucan.core import LucanChat
 
 
-def test_set_modifier() -> None:
-    """Test that set_modifier directly sets values without calculation."""
-
-    # Create chat instance with debug enabled
+@pytest.fixture
+def _chat() -> LucanChat:
+    """Create a LucanChat instance with debug enabled for testing."""
     persona_path = Path("memory/personas/lucan")
-    chat = LucanChat(persona_path, debug=True)
+    return LucanChat(persona_path, debug=True)
+
+
+def test_set_modifier(_chat: LucanChat) -> None:
+    """Test that set_modifier directly sets values without calculation."""
 
     # Test case: User requests "set verbosity to 0"
     test_response = """Got it! Let me go back to my normal verbosity level.
@@ -27,9 +32,11 @@ def test_set_modifier() -> None:
 
 There we go - back to my usual chatty self!"""
 
-    processed = chat._process_modifier_adjustment(test_response)
+    processed = _chat._process_modifier_adjustment(test_response)
 
-    assert chat.lucan.modifiers.get("verbosity", 0) == 0, "Verbosity should be set to 0"
+    assert _chat.lucan.modifiers.get("verbosity", 0) == 0, (
+        "Verbosity should be set to 0"
+    )
 
     # Test case 2: Set warmth to 2
     test_response_2 = """I'll warm up my approach significantly.
@@ -45,9 +52,9 @@ There we go - back to my usual chatty self!"""
 
 Let me be more supportive and caring with you."""
 
-    processed_2 = chat._process_modifier_adjustment(test_response_2)
+    processed_2 = _chat._process_modifier_adjustment(test_response_2)
 
-    assert chat.lucan.modifiers.get("warmth", 0) == 2, "Warmth should be set to 2"
+    assert _chat.lucan.modifiers.get("warmth", 0) == 2, "Warmth should be set to 2"
 
     # Test case 3: Test bounds checking (set to value > 3)
     test_response_3 = """I'll max out the warmth.
@@ -63,9 +70,9 @@ Let me be more supportive and caring with you."""
 
 As warm as I can be."""
 
-    processed_3 = chat._process_modifier_adjustment(test_response_3)
+    processed_3 = _chat._process_modifier_adjustment(test_response_3)
 
-    assert chat.lucan.modifiers.get("warmth", 0) == 3, (
+    assert _chat.lucan.modifiers.get("warmth", 0) == 3, (
         "Warmth should be capped at 3, not set to 5"
     )
 
@@ -73,7 +80,3 @@ As warm as I can be."""
     assert "```json" not in processed, "JSON should be removed from first response"
     assert "```json" not in processed_2, "JSON should be removed from second response"
     assert "```json" not in processed_3, "JSON should be removed from third response"
-
-
-if __name__ == "__main__":
-    test_set_modifier()
