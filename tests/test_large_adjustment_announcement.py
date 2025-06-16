@@ -1,21 +1,10 @@
 #!/usr/bin/env python3
 """Test script to demonstrate the new large adjustment announcement behavior."""
 
-from pathlib import Path
-
-import pytest
-
-from lucan.core import LucanChat
+from .utils import assert_content_preserved, assert_json_removed, chat
 
 
-@pytest.fixture
-def _chat() -> LucanChat:
-    """Create a LucanChat instance with debug enabled for testing."""
-    persona_path = Path("memory/personas/lucan")
-    return LucanChat(persona_path, debug=True)
-
-
-def test_large_adjustment_announcement(_chat: LucanChat) -> None:
+def test_large_adjustment_announcement() -> None:
     """Test that large adjustments are announced naturally in conversation."""
 
     # Test case: User requests gentler approach (warmth +2)
@@ -34,12 +23,12 @@ Right now, can we just sit with where you are instead of where you think you sho
 
 What would help you feel even slightly more at peace in this moment?"""
 
-    warmth_before = _chat.lucan.modifiers.get("warmth", 0)
+    warmth_before = chat.lucan.modifiers.get("warmth", 0)
 
     # Process the adjustment (this should show debug output and apply the change)
-    processed = _chat._process_modifier_adjustment(test_response)
+    processed = chat.process_modifier_adjustment(test_response)
 
-    warmth_after = _chat.lucan.modifiers.get("warmth", 0)
+    warmth_after = chat.lucan.modifiers.get("warmth", 0)
 
     # Verify the large adjustment was applied
     assert warmth_after == warmth_before + 2, (
@@ -47,12 +36,12 @@ What would help you feel even slightly more at peace in this moment?"""
     )
 
     # Verify the announcement is preserved and JSON is removed
-    assert (
-        "Let me shift how I'm approaching this and try a gentler touch" in processed
-    ), "Announcement should be preserved"
-    assert "```json" not in processed, "JSON should be removed"
-    assert "What would help you feel even slightly more at peace" in processed, (
-        "Main content should be preserved"
+    assert_content_preserved(
+        processed, "Let me shift how I'm approaching this and try a gentler touch"
+    )
+    assert_json_removed(processed, "JSON")
+    assert_content_preserved(
+        processed, "What would help you feel even slightly more at peace"
     )
 
     # Test case 2: User wants less verbosity (verbosity -2)
@@ -69,11 +58,11 @@ What would help you feel even slightly more at peace in this moment?"""
 
 What's one small step you could take today?"""
 
-    verbosity_before = _chat.lucan.modifiers.get("verbosity", 0)
+    verbosity_before = chat.lucan.modifiers.get("verbosity", 0)
 
-    processed_2 = _chat._process_modifier_adjustment(test_response_2)
+    processed_2 = chat.process_modifier_adjustment(test_response_2)
 
-    verbosity_after = _chat.lucan.modifiers.get("verbosity", 0)
+    verbosity_after = chat.lucan.modifiers.get("verbosity", 0)
 
     # Verify the verbosity adjustment was applied
     assert verbosity_after == verbosity_before - 2, (
@@ -81,10 +70,6 @@ What's one small step you could take today?"""
     )
 
     # Verify announcement and content preservation
-    assert "I'm going to dial back and be more concise" in processed_2, (
-        "Announcement should be preserved"
-    )
-    assert "```json" not in processed_2, "JSON should be removed"
-    assert "What's one small step you could take today?" in processed_2, (
-        "Main content should be preserved"
-    )
+    assert_content_preserved(processed_2, "I'm going to dial back and be more concise")
+    assert_json_removed(processed_2, "JSON")
+    assert_content_preserved(processed_2, "What's one small step you could take today?")

@@ -1,21 +1,10 @@
 #!/usr/bin/env python3
 """Test script to demonstrate modifier adjustment debug output."""
 
-from pathlib import Path
-
-import pytest
-
-from lucan.core import LucanChat
+from .utils import assert_content_preserved, assert_json_removed, chat
 
 
-@pytest.fixture
-def _chat() -> LucanChat:
-    """Create a LucanChat instance with debug enabled for testing."""
-    persona_path = Path("memory/personas/lucan")
-    return LucanChat(persona_path, debug=True)
-
-
-def test_debug_output(_chat: LucanChat) -> None:
+def test_debug_output() -> None:
     """Test debug output for modifier adjustments."""
 
     # Test small adjustment (should be applied silently)
@@ -33,12 +22,12 @@ def test_debug_output(_chat: LucanChat) -> None:
 Is there anything specific you'd like to focus on?"""
 
     # Show current modifiers
-    verbosity_before = _chat.lucan.modifiers.get("verbosity", 0)
+    verbosity_before = chat.lucan.modifiers.get("verbosity", 0)
 
     # Process the adjustment (this should show debug output)
-    processed = _chat._process_modifier_adjustment(test_response)
+    processed = chat.process_modifier_adjustment(test_response)
 
-    verbosity_after = _chat.lucan.modifiers.get("verbosity", 0)
+    verbosity_after = chat.lucan.modifiers.get("verbosity", 0)
 
     # Assert that the adjustment was applied correctly
     assert verbosity_after == verbosity_before - 1, (
@@ -46,9 +35,7 @@ Is there anything specific you'd like to focus on?"""
     )
 
     # Assert that the JSON was removed from the response
-    assert "```json" not in processed, (
-        "JSON block should be removed from processed response"
-    )
-    assert "Is there anything specific you'd like to focus on?" in processed, (
-        "Main response content should remain"
+    assert_json_removed(processed, "JSON")
+    assert_content_preserved(
+        processed, "Is there anything specific you'd like to focus on?"
     )
