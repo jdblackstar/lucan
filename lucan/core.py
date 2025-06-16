@@ -288,7 +288,7 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
         else:
             return self.tool_manager.handle_tool_call(tool_name, tool_input)
 
-    def _process_modifier_adjustment(self, response: str) -> str:
+    def process_modifier_adjustment(self, response: str) -> str:
         """
         Process any modifier adjustment requests in the response.
 
@@ -786,7 +786,7 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
                         )
 
                     # Process any modifier adjustments in the final response
-                    processed_response = self._process_modifier_adjustment(
+                    processed_response = self.process_modifier_adjustment(
                         final_response
                     )
 
@@ -801,7 +801,7 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
                 else:
                     # No tool results, just return the assistant's text
                     assistant_text = "".join(assistant_content)
-                    processed_response = self._process_modifier_adjustment(
+                    processed_response = self.process_modifier_adjustment(
                         assistant_text
                     )
                     # After Lucan's response is generated, publish event to sidecar
@@ -813,7 +813,7 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
                 lucan_response = response.content[0].text
 
                 # Process any modifier adjustments
-                processed_response = self._process_modifier_adjustment(lucan_response)
+                processed_response = self.process_modifier_adjustment(lucan_response)
 
                 # Add Lucan's response to history
                 self.conversation_history.append(
