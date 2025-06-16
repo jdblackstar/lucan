@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Test script to demonstrate JSON parsing debug output."""
 
-from .utils import assert_content_preserved, assert_json_removed, chat
+from lucan.core import LucanChat
+from .utils import assert_json_removed, assert_content_preserved
 
 
-def test_json_debug() -> None:
+def test_json_debug(chat: LucanChat) -> None:
     """Test that malformed JSON is properly handled and debugged."""
 
     # Test case: Malformed JSON (missing closing brace)
@@ -48,13 +49,11 @@ Let me get straight to the point then."""
     assert "```json" in processed_malformed, (
         "Malformed JSON block should be left in place"
     )
-    assert_content_preserved(
-        processed_malformed, "Let me get straight to the point then."
-    )
+    assert_content_preserved(processed_malformed, "Let me get straight to the point then.")
 
     # Test valid JSON for comparison
     warmth_before_valid = chat.lucan.modifiers.get("warmth", 0)
-    processed_valid = chat._process_modifier_adjustment(test_response_valid)
+    processed_valid = chat.process_modifier_adjustment(test_response_valid)
     warmth_after_valid = chat.lucan.modifiers.get("warmth", 0)
 
     # Valid JSON should be processed correctly

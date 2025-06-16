@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Test script to verify set_modifier action works correctly."""
 
-from .utils import assert_json_removed, chat
+from lucan.core import LucanChat
+from .utils import assert_json_removed
 
 
-def test_set_modifier() -> None:
+def test_set_modifier(chat: LucanChat) -> None:
     """Test that set_modifier directly sets values without calculation."""
 
     # Test case: User requests "set verbosity to 0"
@@ -23,7 +24,9 @@ There we go - back to my usual chatty self!"""
 
     processed = chat.process_modifier_adjustment(test_response)
 
-    assert chat.lucan.modifiers.get("verbosity", 0) == 0, "Verbosity should be set to 0"
+    assert chat.lucan.modifiers.get("verbosity", 0) == 0, (
+        "Verbosity should be set to 0"
+    )
 
     # Test case 2: Set warmth to 2
     test_response_2 = """I'll warm up my approach significantly.

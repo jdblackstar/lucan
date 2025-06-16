@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Test script to demonstrate modifier adjustment debug output."""
 
-from .utils import assert_content_preserved, assert_json_removed, chat
+from lucan.core import LucanChat
+from .utils import assert_json_removed, assert_content_preserved
 
 
-def test_debug_output() -> None:
+def test_debug_output(chat: LucanChat) -> None:
     """Test debug output for modifier adjustments."""
 
     # Test small adjustment (should be applied silently)
@@ -36,6 +37,4 @@ Is there anything specific you'd like to focus on?"""
 
     # Assert that the JSON was removed from the response
     assert_json_removed(processed, "JSON")
-    assert_content_preserved(
-        processed, "Is there anything specific you'd like to focus on?"
-    )
+    assert_content_preserved(processed, "Is there anything specific you'd like to focus on?")

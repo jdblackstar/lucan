@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Test script to verify absolute modifier adjustments work correctly."""
 
-from .utils import assert_json_removed, chat
+from lucan.core import LucanChat
+from .utils import assert_json_removed
 
 
-def test_absolute_adjustments() -> None:
+def test_absolute_adjustments(chat: LucanChat) -> None:
     """Test that absolute adjustments are calculated correctly."""
 
     # Start with some baseline modifiers by making relative adjustments first
@@ -21,7 +22,7 @@ def test_absolute_adjustments() -> None:
 
 Here to help."""
 
-    chat._process_modifier_adjustment(warmth_adjustment_response)
+    chat.process_modifier_adjustment(warmth_adjustment_response)
 
     # Test case: Make an absolute adjustment to warmth using set_modifier
     test_response = """I'm going to be much more formal and professional with you.

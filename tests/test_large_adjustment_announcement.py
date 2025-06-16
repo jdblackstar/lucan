@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Test script to demonstrate the new large adjustment announcement behavior."""
 
-from .utils import assert_content_preserved, assert_json_removed, chat
+from lucan.core import LucanChat
+from .utils import assert_content_preserved, assert_json_removed
 
 
-def test_large_adjustment_announcement() -> None:
+def test_large_adjustment_announcement(chat: LucanChat) -> None:
     """Test that large adjustments are announced naturally in conversation."""
 
     # Test case: User requests gentler approach (warmth +2)
