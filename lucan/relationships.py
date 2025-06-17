@@ -49,12 +49,12 @@ class RelationshipManager:
         Args:
             name: The name of the person/pet
             relationship_type: Type of relationship (e.g., "friend", "mother", "dog")
-            note: The note to add
+            note: The note to add (can be empty for initial record creation)
 
         Returns:
             True if successful, False otherwise
         """
-        if not name.strip() or not note.strip():
+        if not name.strip():
             return False
 
         filename = f"{self._sanitize_filename(name)}.txt"
@@ -114,8 +114,9 @@ class RelationshipManager:
         if relationship_type:
             frontmatter["relationship"] = relationship_type
 
-        # Add new note with date
-        notes.append(f"[{current_time[:10]}] {note.strip()}")
+        # Add new note with date (only if note is not empty)
+        if note.strip():
+            notes.append(f"[{current_time[:10]}] {note.strip()}")
 
         # Write the file
         try:

@@ -36,8 +36,8 @@ class AddRelationshipNoteTool(BaseTool):
             note: What to remember about this person (updates, context, interests, concerns, relationship changes, etc.)
         """
         try:
-            if not name.strip() or not note.strip():
-                return ToolResult(success=False, error="Name and note cannot be empty")
+            if not name.strip():
+                return False
 
             success = self.relationship_manager.add_note(name, relationship_type, note)
 
@@ -147,32 +147,31 @@ class GetRelationshipNotesTool(BaseTool):
                 if self.debug:
                     print(f"[DEBUG] No relationship type matches found for '{name}'")
 
-                # If no notes found anywhere, create a basic note for this person
-                relationship_type = self._infer_relationship_type(name)
-                success = self.relationship_manager.add_note(
-                    name, relationship_type, "First mentioned in conversation"
+                # First: Return clean "not found" result
+                result = ToolResult(
+                    success=True,
+                    data={
+                        "name": name,
+                        "relationship": None,
+                        "notes": [],
+                        "found_by": "not_found",
+                    },
+                    message=f"No information found about {name}"
                 )
 
-                if self.debug and success:
-                    print(
-                        f"[DEBUG] Created initial note for {name} as {relationship_type}"
-                    )
+                # Then: Try to create empty record in background (can fail silently)
+                try:
+                    relationship_type = self._infer_relationship_type(name)
+                    success = self.relationship_manager.add_note(name, relationship_type, "")
+                    if self.debug and success:
+                        print(f"[DEBUG] Created empty relationship record for {name}")
+                    elif self.debug:
+                        print(f"[DEBUG] Failed to create empty record for {name}")
+                except Exception as e:
+                    if self.debug:
+                        print(f"[DEBUG] Exception creating empty record: {e}")
 
-                if success:
-                    return ToolResult(
-                        success=True,
-                        data={
-                            "name": name,
-                            "relationship": relationship_type,
-                            "notes": ["First mentioned in conversation"],
-                            "found_by": "created",
-                        },
-                    )
-                else:
-                    return ToolResult(
-                        success=False,
-                        error="Failed to create initial relationship note",
-                    )
+                return result
 
         except Exception as e:
             return ToolResult(
