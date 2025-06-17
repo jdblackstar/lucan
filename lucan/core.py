@@ -589,22 +589,18 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
             metrics_summary = self._get_metrics_summary()
             print(f"[DEBUG] {metrics_summary}")
 
-        # Fetch any warning from sidecar and inject as system message
+        # Fetch any warning from sidecar and include in system prompt
         warning = self._fetch_sidecar_warning()
-        if warning:
-            self.conversation_history.append(
-                {"role": "system", "content": f"[COACH WARNING] {warning}"}
-            )
-            self._sidecar_warning = warning
-        else:
-            self._sidecar_warning = None
+        self._sidecar_warning = warning
 
         # Add user message to history
         self.conversation_history.append({"role": "user", "content": user_message})
 
         try:
-            # Rebuild system prompt to include current modifier values
+            # Rebuild system prompt to include current modifier values and any warning
             current_system_prompt = self._build_system_prompt()
+            if warning:
+                current_system_prompt += f"\n\n[COACH WARNING] {warning}"
 
             # Prepare messages for the API
             messages = self.conversation_history.copy()
