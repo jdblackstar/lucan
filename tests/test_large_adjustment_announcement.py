@@ -2,7 +2,12 @@
 """Test script to demonstrate the new large adjustment announcement behavior."""
 
 from lucan.core import LucanChat
-from .utils import assert_content_preserved, assert_json_removed
+
+from .utils import (
+    assert_content_preserved,
+    assert_json_removed,
+    process_modifier_adjustment_for_test,
+)
 
 
 def test_large_adjustment_announcement(chat: LucanChat) -> None:
@@ -27,7 +32,7 @@ What would help you feel even slightly more at peace in this moment?"""
     warmth_before = chat.lucan.modifiers.get("warmth", 0)
 
     # Process the adjustment (this should show debug output and apply the change)
-    processed = chat.process_modifier_adjustment(test_response)
+    processed = process_modifier_adjustment_for_test(chat, test_response)
 
     warmth_after = chat.lucan.modifiers.get("warmth", 0)
 
@@ -61,7 +66,7 @@ What's one small step you could take today?"""
 
     verbosity_before = chat.lucan.modifiers.get("verbosity", 0)
 
-    processed_2 = chat.process_modifier_adjustment(test_response_2)
+    processed_2 = process_modifier_adjustment_for_test(chat, test_response_2)
 
     verbosity_after = chat.lucan.modifiers.get("verbosity", 0)
 
