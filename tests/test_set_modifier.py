@@ -2,7 +2,8 @@
 """Test script to verify set_modifier action works correctly."""
 
 from lucan.core import LucanChat
-from .utils import assert_json_removed
+
+from .utils import assert_json_removed, process_modifier_adjustment_for_test
 
 
 def test_set_modifier(chat: LucanChat) -> None:
@@ -22,11 +23,9 @@ def test_set_modifier(chat: LucanChat) -> None:
 
 There we go - back to my usual chatty self!"""
 
-    processed = chat.process_modifier_adjustment(test_response)
+    processed = process_modifier_adjustment_for_test(chat, test_response)
 
-    assert chat.lucan.modifiers.get("verbosity", 0) == 0, (
-        "Verbosity should be set to 0"
-    )
+    assert chat.lucan.modifiers.get("verbosity", 0) == 0, "Verbosity should be set to 0"
 
     # Test case 2: Set warmth to 2
     test_response_2 = """I'll warm up my approach significantly.
@@ -42,7 +41,7 @@ There we go - back to my usual chatty self!"""
 
 Let me be more supportive and caring with you."""
 
-    processed_2 = chat.process_modifier_adjustment(test_response_2)
+    processed_2 = process_modifier_adjustment_for_test(chat, test_response_2)
 
     assert chat.lucan.modifiers.get("warmth", 0) == 2, "Warmth should be set to 2"
 
@@ -60,7 +59,7 @@ Let me be more supportive and caring with you."""
 
 As warm as I can be."""
 
-    processed_3 = chat.process_modifier_adjustment(test_response_3)
+    processed_3 = process_modifier_adjustment_for_test(chat, test_response_3)
 
     assert chat.lucan.modifiers.get("warmth", 0) == 3, (
         "Warmth should be capped at 3, not set to 5"

@@ -2,7 +2,8 @@
 """Test script to verify absolute modifier adjustments work correctly."""
 
 from lucan.core import LucanChat
-from .utils import assert_json_removed
+
+from .utils import assert_json_removed, process_modifier_adjustment_for_test
 
 
 def test_absolute_adjustments(chat: LucanChat) -> None:
@@ -22,7 +23,7 @@ def test_absolute_adjustments(chat: LucanChat) -> None:
 
 Here to help."""
 
-    chat.process_modifier_adjustment(warmth_adjustment_response)
+    process_modifier_adjustment_for_test(chat, warmth_adjustment_response)
 
     # Test case: Make an absolute adjustment to warmth using set_modifier
     test_response = """I'm going to be much more formal and professional with you.
@@ -38,7 +39,7 @@ Here to help."""
 
 How may I assist you today?"""
 
-    processed = chat.process_modifier_adjustment(test_response)
+    processed = process_modifier_adjustment_for_test(chat, test_response)
 
     warmth_after = chat.lucan.modifiers.get("warmth", 0)
 
@@ -61,7 +62,7 @@ How may I assist you today?"""
 
 Ok."""
 
-    processed_2 = chat.process_modifier_adjustment(test_response_2)
+    processed_2 = process_modifier_adjustment_for_test(chat, test_response_2)
 
     verbosity_after = chat.lucan.modifiers.get("verbosity", 0)
 
