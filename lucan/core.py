@@ -1,6 +1,5 @@
 import json
 import os
-import re
 from collections import deque
 from pathlib import Path
 from typing import Dict, List
@@ -93,6 +92,7 @@ class LucanChat:
         self.tool_manager = ToolManager(
             relationship_manager=self.relationship_manager,
             goal_manager=self.goal_manager,
+            lucan_instance=self.lucan,
             debug=self.debug,
         )
 
@@ -151,70 +151,7 @@ class LucanChat:
             "\nUse these current values when calculating absolute adjustments.\n\n"
         )
 
-        # Add tool definition for modifier adjustment (keeping the JSON approach for now)
-        modifier_tool_definition = """
-
-MODIFIER ADJUSTMENT TOOL:
-You have the ability to adjust your own personality modifiers based on user feedback or your own perception of misalignment. Use this tool when:
-1. The user explicitly asks for behavior changes (e.g., "be less verbose", "be warmer")
-2. You perceive your current behavior isn't working well for the user
-
-You have two actions available:
-
-**For relative changes** (adjust_modifier):
-```json
-{
-    "action": "adjust_modifier",
-    "modifier": "verbosity",
-    "adjustment": -1,
-    "reason": "User indicated my responses are too long"
-}
-```
-
-**For absolute values** (set_modifier):
-```json
-{
-    "action": "set_modifier",
-    "modifier": "verbosity",
-    "value": 0,
-    "reason": "User requested to set verbosity back to 0"
-}
-```
-
-IMPORTANT: When you use this tool, do NOT mention the technical details or numbers. Instead, explain the change conversationally in your own voice.
-
-For small adjustments (±1): Just apply the change and continue naturally. No need to announce it.
-
-For larger changes (±2 or more, or any set_modifier): Always announce that you're shifting your approach. Examples:
-- "I hear you. Let me shift how I'm approaching this and try a gentler touch."
-- "You're right - I'm going to dial back the intensity and be more supportive."
-- "I think I need to be more direct with you. Let me refocus and try a different approach."
-- "I'm sensing my current approach isn't landing well. Let me recalibrate and be warmer."
-
-WHEN TO USE EACH ACTION:
-- **adjust_modifier**: When user says "be more/less X", "too verbose", "not warm enough", etc.
-  Examples: "be less verbose" → adjustment of -1, "be much warmer" → adjustment of +2
-- **set_modifier**: When user says "set X to Y", "reset X to Y", "go back to normal", etc.
-  Examples: "set verbosity to 0" → value of 0, "reset warmth to normal" → value of 0
-
-RULES:
-- Available modifiers: warmth, challenge, verbosity, emotional_depth, structure
-- All changes are applied automatically (no user confirmation needed)
-- All changes are saved automatically
-- Modifiers range from -3 to +3
-- For large changes, naturally announce the shift in your approach as part of your response
-- Use set_modifier for absolute requests - it's much cleaner than calculating adjustments
-
-Examples of when to use each:
-- "Your messages are too long" → adjust_modifier, adjustment: -1 or -2
-- "Be more direct" → adjust_modifier for warmth down, structure up  
-- "I need more emotional support" → adjust_modifier for warmth up, emotional_depth up
-- "Too intense/overwhelming" → adjust_modifier for challenge down, warmth up
-- "I need a gentler touch" → significant warmth increase, announce the shift
-- "Set verbosity to 0" → set_modifier, value: 0
-- "Reset warmth back to normal" → set_modifier, value: 0
-- "Make challenge level 2" → set_modifier, value: 2
-"""
+        # Note: Modifier adjustment is now handled via proper tools
 
         # Add relationship tracking guidance (now using proper tools)
         relationship_guidance = """
@@ -252,11 +189,7 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
         """
 
         return (
-            base_prompt
-            + current_modifiers
-            + modifier_tool_definition
-            + relationship_guidance
-            + additional_context
+            base_prompt + current_modifiers + relationship_guidance + additional_context
         )
 
     def _handle_tool_call(self, tool_name: str, tool_input: Dict) -> Dict:
@@ -290,102 +223,20 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
 
     def process_modifier_adjustment(self, response: str) -> str:
         """
-        Process any modifier adjustment requests in the response.
+        Process any modifier adjustment in the response.
+
+        Now that we use proper tools for modifier adjustments,
+        this method just returns the response as-is.
+        Kept for backward compatibility.
 
         Args:
-            response: Lucan's response that may contain modifier adjustments
+            response: Lucan's response
 
         Returns:
-            The processed response with JSON blocks removed
+            The unmodified response (tools handle modifier adjustments)
         """
-        # Primary pattern for complete JSON blocks (both adjust and set actions)
-        json_pattern = r'```json\s*(\{[^}]*"action":\s*"(?:adjust_modifier|set_modifier)"[^}]*\})\s*```'
-        matches = re.findall(json_pattern, response, re.DOTALL)
-
-        # Secondary pattern to catch incomplete JSON blocks for debugging
-        incomplete_pattern = r'```json\s*(\{[^`]*"action":\s*"(?:adjust_modifier|set_modifier)"[^`]*?)```'
-        incomplete_matches = re.findall(incomplete_pattern, response, re.DOTALL)
-
-        # Remove complete matches from incomplete matches to avoid duplicates
-        for complete_match in matches:
-            incomplete_matches = [
-                m for m in incomplete_matches if complete_match not in m
-            ]
-
-        if self.debug and incomplete_matches:
-            for incomplete in incomplete_matches:
-                print("[DEBUG] Incomplete JSON block found:")
-                print(f"'{incomplete}'")
-                print("[DEBUG] This was not processed due to incomplete structure")
-
-        if not matches:
-            return response
-
-        processed_response = response
-
-        for match in matches:
-            if self.debug:
-                print("[DEBUG] Raw JSON found:")
-                print(f"'{match}'")
-                print(f"[DEBUG] JSON length: {len(match)} characters")
-
-            try:
-                adjustment_data = json.loads(match)
-                action = adjustment_data.get("action")
-                modifier = adjustment_data.get("modifier")
-                reason = adjustment_data.get("reason", "No reason provided")
-
-                if action == "set_modifier":
-                    # Direct setting
-                    target_value = adjustment_data.get("value")
-                    old_value = self.lucan.modifiers.get(modifier, 0)
-                    success, message = self.lucan.set_modifier(modifier, target_value)
-
-                    if self.debug and success:
-                        print(
-                            f"[DEBUG] Set modifier: {modifier} ({old_value} → {self.lucan.modifiers[modifier]}) - {reason}"
-                        )
-
-                elif action == "adjust_modifier":
-                    # Relative adjustment
-                    adjustment = adjustment_data.get("adjustment")
-                    old_value = self.lucan.modifiers.get(modifier, 0)
-                    success, message = self.lucan.adjust_modifier(modifier, adjustment)
-
-                    if self.debug and success:
-                        if abs(adjustment) <= 1:
-                            print(
-                                f"[DEBUG] Small adjustment: {modifier} ({old_value} → {self.lucan.modifiers[modifier]}) - {reason}"
-                            )
-                        else:
-                            print(
-                                f"[DEBUG] Large adjustment: {modifier} ({old_value} → {self.lucan.modifiers[modifier]}) - {reason} (announced in response)"
-                            )
-
-                # Always remove the JSON block - let Lucan's natural language handle the announcement
-                processed_response = processed_response.replace(
-                    f"```json\n{match}\n```", ""
-                )
-
-            except (json.JSONDecodeError, KeyError) as e:
-                if self.debug:
-                    print(f"[DEBUG] Invalid modifier adjustment JSON: {e}")
-                    print(f"[DEBUG] Failed to parse: '{match}'")
-                    # Show character-by-character breakdown around the error position if possible
-                    if hasattr(e, "pos"):
-                        error_pos = e.pos
-                        start = max(0, error_pos - 10)
-                        end = min(len(match), error_pos + 10)
-                        print(f"[DEBUG] Context around error position {error_pos}:")
-                        print(
-                            f"'{match[start:end]}' (error at position {error_pos - start})"
-                        )
-                # Invalid JSON - just remove it and let Lucan's text speak for itself
-                processed_response = processed_response.replace(
-                    f"```json\n{match}\n```", ""
-                )
-
-        return processed_response.strip()
+        # Legacy method - tools now handle modifier adjustments
+        return response
 
     def _publish_sidecar_event(self, user_text: str, bot_text: str) -> None:
         """
