@@ -156,13 +156,15 @@ class GetRelationshipNotesTool(BaseTool):
                         "notes": [],
                         "found_by": "not_found",
                     },
-                    message=f"No information found about {name}"
+                    message=f"No information found about {name}",
                 )
 
                 # Then: Try to create empty record in background (can fail silently)
                 try:
                     relationship_type = self._infer_relationship_type(name)
-                    success = self.relationship_manager.add_note(name, relationship_type, "")
+                    success = self.relationship_manager.add_note(
+                        name, relationship_type, ""
+                    )
                     if self.debug and success:
                         print(f"[DEBUG] Created empty relationship record for {name}")
                     elif self.debug:
