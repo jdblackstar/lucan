@@ -1,12 +1,13 @@
 """Tools for managing relationship information."""
 
+from ..relationships import RelationshipManager
 from .base import BaseTool, ToolResult
 
 
 class AddRelationshipNoteTool(BaseTool):
     """Tool for adding relationship notes."""
 
-    def __init__(self, relationship_manager, debug: bool = False):
+    def __init__(self, relationship_manager: RelationshipManager, debug: bool = False):
         self.relationship_manager = relationship_manager
         self.debug = debug
 
@@ -68,7 +69,7 @@ class AddRelationshipNoteTool(BaseTool):
 class GetRelationshipNotesTool(BaseTool):
     """Tool for retrieving relationship notes."""
 
-    def __init__(self, relationship_manager, debug: bool = False):
+    def __init__(self, relationship_manager: RelationshipManager, debug: bool = False):
         self.relationship_manager = relationship_manager
         self.debug = debug
 
