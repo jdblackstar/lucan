@@ -263,10 +263,10 @@ Examples:
                     )
 
                     if len(recent_window) >= 2:
-                        import numpy as np
+                        from numpy.polynomial import Polynomial
 
                         x_vals = list(range(len(recent_window)))
-                        trend_slope = np.polyfit(x_vals, recent_window, 1)[0]
+                        trend_slope = Polynomial.fit(x_vals, recent_window, 1)[0]
                         overall_delta = sentiments[-1] - sentiments[0]
 
                         if trend_slope < -0.1 or overall_delta < -0.3:
@@ -338,10 +338,10 @@ Examples:
                 recent_window = sentiments[-5:] if len(sentiments) >= 5 else sentiments
 
                 if len(recent_window) >= 2:
-                    import numpy as np
+                    from numpy.polynomial import Polynomial
 
                     x_vals = list(range(len(recent_window)))
-                    trend_slope = np.polyfit(x_vals, recent_window, 1)[0]
+                    trend_slope = Polynomial.fit(x_vals, recent_window, 1)[0]
                     current_sentiment = sentiments[-1]
 
                     # Format sentiment with trend indicator
