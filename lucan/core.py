@@ -7,7 +7,7 @@ from typing import Dict, List
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from .config import RELATIONSHIPS_DIR
+from .config import ModelConfig, RELATIONSHIPS_DIR
 from .goals import GoalManager
 from .loader import Lucan
 from .relationships import RelationshipManager
@@ -130,10 +130,10 @@ class LucanChat:
 
     def _define_tools(self) -> List[Dict]:
         """
-        Define the tools available to Claude.
+        Define the tools available to Lucan.
 
         Returns:
-            List of tool definitions for the Anthropic API
+            List of tool definitions for the OpenRouter API
         """
         return self.tool_manager.get_tool_definitions()
 
@@ -446,7 +446,7 @@ Examples:
             ] + message_history
 
             response = self.client.chat.completions.create(
-                model="anthropic/claude-4-sonnet-20250522",
+                model=ModelConfig.DEFAULT_LUCAN_MODEL,
                 tools=tools,
                 messages=prepared_messages,
             )
@@ -499,7 +499,7 @@ Examples:
 
                     # Get the follow-up response after tool execution
                     follow_up_response = self.client.chat.completions.create(
-                        model="anthropic/claude-4-sonnet-20250522",
+                        model=ModelConfig.DEFAULT_LUCAN_MODEL,
                         messages=[{"role": "system", "content": current_system_prompt}]
                         + self.conversation_history.copy(),
                         tools=tools,
@@ -510,7 +510,7 @@ Examples:
                             f"[DEBUG] Follow-up response finish reason: {follow_up_response.choices[0].finish_reason}"
                         )
 
-                    # Handle chained tool calls - Claude wants to make another tool call
+                    # Handle chained tool calls - Lucan wants to make another tool call
                     if follow_up_response.choices[0].finish_reason == "tool_calls":
                         if self.debug:
                             print(
@@ -563,7 +563,7 @@ Examples:
                             # Get the final response after all tool calls
                             final_follow_up_response = (
                                 self.client.chat.completions.create(
-                                    model="anthropic/claude-4-sonnet-20250522",
+                                    model=ModelConfig.DEFAULT_LUCAN_MODEL,
                                     messages=[
                                         {
                                             "role": "system",
