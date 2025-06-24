@@ -592,10 +592,6 @@ Examples:
                         final_response = (
                             follow_up_response.choices[0].message.content or ""
                         )
-                        if self.debug:
-                            print(
-                                f"[DEBUG] Adding text from follow-up: '{final_response[:100]}...'"
-                            )
 
                     if self.debug:
                         print(f"[DEBUG] Final response length: {len(final_response)}")
