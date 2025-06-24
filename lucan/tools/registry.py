@@ -30,7 +30,7 @@ class ToolRegistry:
                     "name": tool.name,
                     "description": tool.description,
                     "parameters": tool.get_schema(),
-                }
+                },
             }
             definitions.append(definition)
 
