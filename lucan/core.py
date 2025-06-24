@@ -201,23 +201,6 @@ Examples:
         else:
             return self.tool_manager.handle_tool_call(tool_name, tool_input)
 
-    def process_modifier_adjustment(self, response: str) -> str:
-        """
-        Process any modifier adjustment in the response.
-
-        Now that we use proper tools for modifier adjustments,
-        this method just returns the response as-is.
-        Kept for backward compatibility.
-
-        Args:
-            response: Lucan's response
-
-        Returns:
-            The unmodified response (tools handle modifier adjustments)
-        """
-        # Legacy method - tools now handle modifier adjustments
-        return response
-
     def _publish_sidecar_event(self, user_text: str, bot_text: str) -> None:
         """
         Publish a chat event to the in-memory sidecar store and run sidecar evaluation.
@@ -609,43 +592,32 @@ Examples:
                             or "I received the information but encountered an issue generating a response. Could you please try again?"
                         )
 
-                    # Process any modifier adjustments in the final response
-                    processed_response = self.process_modifier_adjustment(
-                        final_response
-                    )
-
                     # Add the final response to history
                     self.conversation_history.append(
-                        {"role": "assistant", "content": processed_response}
+                        {"role": "assistant", "content": final_response}
                     )
 
                     # After Lucan's response is generated, publish event to sidecar
-                    self._publish_sidecar_event(user_message, processed_response)
-                    return processed_response
+                    self._publish_sidecar_event(user_message, final_response)
+                    return final_response
                 else:
                     # No tool results, just return the assistant's text
-                    processed_response = self.process_modifier_adjustment(
-                        assistant_content
-                    )
                     # After Lucan's response is generated, publish event to sidecar
-                    self._publish_sidecar_event(user_message, processed_response)
-                    return processed_response
+                    self._publish_sidecar_event(user_message, assistant_content)
+                    return assistant_content
 
             else:
                 # No tool calls, handle as before
                 lucan_response = response.choices[0].message.content
 
-                # Process any modifier adjustments
-                processed_response = self.process_modifier_adjustment(lucan_response)
-
                 # Add Lucan's response to history
                 self.conversation_history.append(
-                    {"role": "assistant", "content": processed_response}
+                    {"role": "assistant", "content": lucan_response}
                 )
 
                 # After Lucan's response is generated, publish event to sidecar
-                self._publish_sidecar_event(user_message, processed_response)
-                return processed_response
+                self._publish_sidecar_event(user_message, lucan_response)
+                return lucan_response
 
         except Exception as e:
             return f"Error communicating with Lucan: {str(e)}"
