@@ -7,7 +7,7 @@ from typing import Dict, List
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from .config import ModelConfig, RELATIONSHIPS_DIR
+from .config import RELATIONSHIPS_DIR, ModelConfig
 from .goals import GoalManager
 from .loader import Lucan
 from .relationships import RelationshipManager
@@ -170,9 +170,7 @@ Examples:
 - User asks "Do you remember Sarah?" → "Yes, I remember she got promoted recently"
 """
 
-        return (
-            base_prompt + current_modifiers + relationship_guidance
-        )
+        return base_prompt + current_modifiers + relationship_guidance
 
     def _handle_tool_call(self, tool_name: str, tool_input: Dict) -> Dict:
         """
