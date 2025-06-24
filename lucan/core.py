@@ -26,10 +26,7 @@ try:
     METRICS_AVAILABLE = True
 except ImportError as e:
     METRICS_AVAILABLE = False
-    if "OPENAI_API_KEY" not in os.environ:
-        print("[INFO] Sidecar metrics disabled - OpenAI API key not found")
-    else:
-        print(f"[WARNING] Sidecar metrics disabled - import error: {e}")
+    print(f"[INFO] Sidecar metrics disabled - import error: {e}")
 
 WINDOW_SIZE = 10  # Number of bot messages to keep for evaluation
 
