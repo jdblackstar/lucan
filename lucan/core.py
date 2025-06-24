@@ -157,39 +157,21 @@ class LucanChat:
         relationship_guidance = """
 
 RELATIONSHIP MEMORY:
-You have access to tools for remembering details about people the user mentions. Use these naturally in conversation:
+Use your relationship tools naturally to remember people the user mentions:
 
-- When someone new is mentioned, add a note about them with basic information
-- When you learn new information about someone, add another note 
-- When someone is mentioned again, recall what you know about them naturally
-- Don't announce that you're "checking notes" or "looking up information" - just remember naturally
-- You can acknowledge you remember someone if directly asked about your memory
-- Remember family, friends, colleagues, pets, therapists - anyone important to the user
+- When someone new is mentioned, remember them with basic information
+- When someone is mentioned again, naturally recall what you know
+- Don't announce that you're "checking notes" - just remember like a good friend would
+- Remember anyone important: family, friends, colleagues, pets, therapists, etc.
 
 Examples:
-- User mentions "My therapist Mervin" → add note for Mervin as therapist
-- User mentions someone again → naturally recall what you know without announcing it
-- User asks "Do you remember Sarah?" → You can say "Yes, I remember she got promoted recently"
-
-Remember people naturally, like a good friend would.
+- User mentions "My therapist Mervin" → remember Mervin as therapist
+- User mentions someone again → naturally recall what you know
+- User asks "Do you remember Sarah?" → "Yes, I remember she got promoted recently"
 """
 
-        # Add additional context about conversation style
-        additional_context = """
-Remember to stay true to your personality traits:
-- Be unflinching and loyal
-- Ask questions more than giving speeches
-- Surface contradictions gently but directly
-- Emphasize forward motion over emotional wallowing
-- Use occasional metaphors and structured reframing when helpful
-
-Keep responses concise and grounded. Your role is to help the user move forward and grow.
-
-Pay attention to user feedback and be willing to adjust your approach when it's not working.
-        """
-
         return (
-            base_prompt + current_modifiers + relationship_guidance + additional_context
+            base_prompt + current_modifiers + relationship_guidance
         )
 
     def _handle_tool_call(self, tool_name: str, tool_input: Dict) -> Dict:
