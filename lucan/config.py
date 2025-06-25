@@ -163,7 +163,8 @@ class ModelConfig:
     """Configuration for AI model integration."""
 
     # Placeholder for future model settings
-    DEFAULT_MODEL = "gpt-4"
+    DEFAULT_LUCAN_MODEL = "anthropic/claude-4-sonnet-20250522"
+    DEFAULT_MEMORY_MODEL = "openai/gpt-4.1-mini-2025-04-14"
     MAX_TOKENS = 2000
     TEMPERATURE = 0.7
 

@@ -20,14 +20,17 @@ class ToolRegistry:
             print(f"[DEBUG] Registered tool: {tool_instance.name}")
 
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
-        """Get tool definitions for the Anthropic API."""
+        """Get tool definitions for the OpenAI API."""
         definitions = []
 
         for tool in self._tools.values():
             definition = {
-                "name": tool.name,
-                "description": tool.description,
-                "input_schema": tool.get_schema(),
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.get_schema(),
+                },
             }
             definitions.append(definition)
 

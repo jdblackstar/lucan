@@ -4,10 +4,10 @@ from collections import deque
 from pathlib import Path
 from typing import Dict, List
 
-from anthropic import Anthropic
 from dotenv import load_dotenv
+from openai import OpenAI
 
-from .config import RELATIONSHIPS_DIR
+from .config import RELATIONSHIPS_DIR, ModelConfig
 from .goals import GoalManager
 from .loader import Lucan
 from .relationships import RelationshipManager
@@ -26,10 +26,7 @@ try:
     METRICS_AVAILABLE = True
 except ImportError as e:
     METRICS_AVAILABLE = False
-    if "OPENAI_API_KEY" not in os.environ:
-        print("[INFO] Sidecar metrics disabled - OpenAI API key not found")
-    else:
-        print(f"[WARNING] Sidecar metrics disabled - import error: {e}")
+    print(f"[INFO] Sidecar metrics disabled - import error: {e}")
 
 WINDOW_SIZE = 10  # Number of bot messages to keep for evaluation
 
@@ -75,7 +72,10 @@ class LucanChat:
             debug: Whether to enable debug output for development
             conv_id: Unique conversation ID
         """
-        self.client = Anthropic(api_key=os.getenv("ANTHROPIC_KEY"))
+        self.client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+        )
         self.lucan = Lucan(Path(persona_path))
         self.conversation_history: List[Dict[str, str]] = []
         self.debug = debug
@@ -130,10 +130,10 @@ class LucanChat:
 
     def _define_tools(self) -> List[Dict]:
         """
-        Define the tools available to Claude.
+        Define the tools available to Lucan.
 
         Returns:
-            List of tool definitions for the Anthropic API
+            List of tool definitions for the OpenRouter API
         """
         return self.tool_manager.get_tool_definitions()
 
@@ -157,40 +157,30 @@ class LucanChat:
         relationship_guidance = """
 
 RELATIONSHIP MEMORY:
-You have access to tools for remembering details about people the user mentions. Use these naturally in conversation:
+Use your relationship tools to naturally remember people, but respond like a human friend:
 
-- When someone new is mentioned, add a note about them with basic information
-- When you learn new information about someone, add another note 
-- When someone is mentioned again, recall what you know about them naturally
-- Don't announce that you're "checking notes" or "looking up information" - just remember naturally
-- You can acknowledge you remember someone if directly asked about your memory
-- Remember family, friends, colleagues, pets, therapists - anyone important to the user
+WHEN SOMEONE ASKS "Do you remember X?":
+- Brief acknowledgment: "Yeah, I remember Francesca" 
+- Key context only: "your ex from college"
+- Ask what's relevant: "What's bringing her up?"
+
+DON'T:
+- Recite every detail you know
+- Sound like reading from notes
+- Give unsolicited relationship history
+
+DO:
+- Remember naturally and conversationally  
+- Share details only when specifically asked
+- Match the energy/depth of their question
 
 Examples:
-- User mentions "My therapist Mervin" → add note for Mervin as therapist
-- User mentions someone again → naturally recall what you know without announcing it
-- User asks "Do you remember Sarah?" → You can say "Yes, I remember she got promoted recently"
-
-Remember people naturally, like a good friend would.
+- "Do you remember Sarah?" → "Yeah, Sarah from work. What about her?"
+- "What do you remember about Sarah?" → [More detailed response]
+- "Tell me everything about Sarah" → [Full context appropriate]
 """
 
-        # Add additional context about conversation style
-        additional_context = """
-Remember to stay true to your personality traits:
-- Be unflinching and loyal
-- Ask questions more than giving speeches
-- Surface contradictions gently but directly
-- Emphasize forward motion over emotional wallowing
-- Use occasional metaphors and structured reframing when helpful
-
-Keep responses concise and grounded. Your role is to help the user move forward and grow.
-
-Pay attention to user feedback and be willing to adjust your approach when it's not working.
-        """
-
-        return (
-            base_prompt + current_modifiers + relationship_guidance + additional_context
-        )
+        return base_prompt + current_modifiers + relationship_guidance
 
     def _handle_tool_call(self, tool_name: str, tool_input: Dict) -> Dict:
         """
@@ -220,23 +210,6 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
             return result
         else:
             return self.tool_manager.handle_tool_call(tool_name, tool_input)
-
-    def process_modifier_adjustment(self, response: str) -> str:
-        """
-        Process any modifier adjustment in the response.
-
-        Now that we use proper tools for modifier adjustments,
-        this method just returns the response as-is.
-        Kept for backward compatibility.
-
-        Args:
-            response: Lucan's response
-
-        Returns:
-            The unmodified response (tools handle modifier adjustments)
-        """
-        # Legacy method - tools now handle modifier adjustments
-        return response
 
     def _publish_sidecar_event(self, user_text: str, bot_text: str) -> None:
         """
@@ -300,10 +273,10 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
                     )
 
                     if len(recent_window) >= 2:
-                        import numpy as np
+                        from numpy.polynomial import Polynomial
 
                         x_vals = list(range(len(recent_window)))
-                        trend_slope = np.polyfit(x_vals, recent_window, 1)[0]
+                        trend_slope = Polynomial.fit(x_vals, recent_window, 1)[0]
                         overall_delta = sentiments[-1] - sentiments[0]
 
                         if trend_slope < -0.1 or overall_delta < -0.3:
@@ -375,10 +348,10 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
                 recent_window = sentiments[-5:] if len(sentiments) >= 5 else sentiments
 
                 if len(recent_window) >= 2:
-                    import numpy as np
+                    from numpy.polynomial import Polynomial
 
                     x_vals = list(range(len(recent_window)))
-                    trend_slope = np.polyfit(x_vals, recent_window, 1)[0]
+                    trend_slope = Polynomial.fit(x_vals, recent_window, 1)[0]
                     current_sentiment = sentiments[-1]
 
                     # Format sentiment with trend indicator
@@ -454,87 +427,82 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
                 current_system_prompt += f"\n\n[COACH WARNING] {warning}"
 
             # Prepare messages for the API
-            messages = self.conversation_history.copy()
+            message_history = self.conversation_history.copy()
 
             # Get tool definitions
             tools = self._define_tools()
 
-            response = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1000,
-                system=current_system_prompt,
-                messages=messages,
+            prepared_messages = [
+                {"role": "system", "content": current_system_prompt}
+            ] + message_history
+
+            response = self.client.chat.completions.create(
+                model=ModelConfig.DEFAULT_LUCAN_MODEL,
                 tools=tools,
+                messages=prepared_messages,
             )
 
             # Process the response - it might contain tool calls
-            if response.stop_reason == "tool_use":
-                # Handle tool calls
+            if response.choices[0].finish_reason == "tool_calls":
+                # Handle tool calls (OpenAI format)
                 tool_results = []
-                assistant_content = []
+                assistant_content = response.choices[0].message.content or ""
 
-                for content_block in response.content:
-                    if content_block.type == "text":
-                        assistant_content.append(content_block.text)
-                    elif content_block.type == "tool_use":
-                        tool_name = content_block.name
-                        tool_input = content_block.input
-                        tool_id = content_block.id
+                # Execute all tool calls
+                for tool_call in response.choices[0].message.tool_calls:
+                    tool_name = tool_call.function.name
+                    tool_input = json.loads(tool_call.function.arguments)
+                    tool_id = tool_call.id
 
-                        if self.debug:
-                            print(
-                                f"[DEBUG] Tool called: {tool_name} with input: {tool_input}"
-                            )
-
-                        # Execute the tool
-                        tool_result = self._handle_tool_call(tool_name, tool_input)
-
-                        tool_results.append(
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": tool_id,
-                                "content": json.dumps(tool_result),
-                            }
+                    if self.debug:
+                        print(
+                            f"[DEBUG] Tool called: {tool_name} with input: {tool_input}"
                         )
+
+                    # Execute the tool
+                    tool_result = self._handle_tool_call(tool_name, tool_input)
+
+                    tool_results.append(
+                        {
+                            "tool_call_id": tool_id,
+                            "role": "tool",
+                            "content": json.dumps(tool_result),
+                        }
+                    )
 
                 # Add the assistant's message (with tool calls) to history
                 self.conversation_history.append(
-                    {"role": "assistant", "content": response.content}
+                    {
+                        "role": "assistant",
+                        "content": assistant_content,
+                        "tool_calls": response.choices[0].message.tool_calls,
+                    }
                 )
 
                 # Add tool results to history
                 if tool_results:
-                    self.conversation_history.append(
-                        {"role": "user", "content": tool_results}
-                    )
+                    self.conversation_history.extend(tool_results)
 
                     if self.debug:
                         print(
                             f"[DEBUG] Conversation history length before follow-up: {len(self.conversation_history)}"
                         )
-                        print(
-                            f"[DEBUG] Last message in history: {self.conversation_history[-1]}"
-                        )
 
                     # Get the follow-up response after tool execution
-                    follow_up_response = self.client.messages.create(
-                        model="claude-sonnet-4-20250514",
-                        max_tokens=1000,
-                        system=current_system_prompt,
-                        messages=self.conversation_history.copy(),
+                    follow_up_response = self.client.chat.completions.create(
+                        model=ModelConfig.DEFAULT_LUCAN_MODEL,
+                        messages=[{"role": "system", "content": current_system_prompt}]
+                        + self.conversation_history.copy(),
                         tools=tools,
                     )
 
                     if self.debug:
                         print(
-                            f"[DEBUG] Follow-up response stop reason: {follow_up_response.stop_reason}"
-                        )
-                        print(
-                            f"[DEBUG] Follow-up response content blocks: {len(follow_up_response.content)}"
+                            f"[DEBUG] Follow-up response finish reason: {follow_up_response.choices[0].finish_reason}"
                         )
 
-                    # Handle chained tool calls - Claude wants to make another tool call
-                    if follow_up_response.stop_reason == "tool_use":
+                    # Handle chained tool calls - Lucan wants to make another tool call
+                    if follow_up_response.choices[0].finish_reason == "tool_calls":
                         if self.debug:
                             print(
                                 "[DEBUG] Follow-up response contains additional tool calls - handling recursively"
@@ -542,79 +510,81 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
 
                         # Process the additional tool calls
                         additional_tool_results = []
-                        follow_up_assistant_content = []
+                        follow_up_assistant_content = (
+                            follow_up_response.choices[0].message.content or ""
+                        )
 
-                        for content_block in follow_up_response.content:
-                            if content_block.type == "text":
-                                follow_up_assistant_content.append(content_block.text)
-                            elif content_block.type == "tool_use":
-                                tool_name = content_block.name
-                                tool_input = content_block.input
-                                tool_id = content_block.id
+                        for tool_call in follow_up_response.choices[
+                            0
+                        ].message.tool_calls:
+                            tool_name = tool_call.function.name
+                            tool_input = json.loads(tool_call.function.arguments)
+                            tool_id = tool_call.id
 
-                                if self.debug:
-                                    print(
-                                        f"[DEBUG] Additional tool called: {tool_name} with input: {tool_input}"
-                                    )
-
-                                # Execute the additional tool
-                                tool_result = self._handle_tool_call(
-                                    tool_name, tool_input
+                            if self.debug:
+                                print(
+                                    f"[DEBUG] Additional tool called: {tool_name} with input: {tool_input}"
                                 )
-                                additional_tool_results.append(
-                                    {
-                                        "type": "tool_result",
-                                        "tool_use_id": tool_id,
-                                        "content": json.dumps(tool_result),
-                                    }
-                                )
+
+                            # Execute the additional tool
+                            tool_result = self._handle_tool_call(tool_name, tool_input)
+                            additional_tool_results.append(
+                                {
+                                    "tool_call_id": tool_id,
+                                    "role": "tool",
+                                    "content": json.dumps(tool_result),
+                                }
+                            )
 
                         # Add the follow-up assistant message (with additional tool calls) to history
                         self.conversation_history.append(
-                            {"role": "assistant", "content": follow_up_response.content}
+                            {
+                                "role": "assistant",
+                                "content": follow_up_assistant_content,
+                                "tool_calls": follow_up_response.choices[
+                                    0
+                                ].message.tool_calls,
+                            }
                         )
 
                         # Add additional tool results to history
                         if additional_tool_results:
-                            self.conversation_history.append(
-                                {"role": "user", "content": additional_tool_results}
-                            )
+                            self.conversation_history.extend(additional_tool_results)
 
                             # Get the final response after all tool calls
-                            final_follow_up_response = self.client.messages.create(
-                                model="claude-sonnet-4-20250514",
-                                max_tokens=1000,
-                                system=current_system_prompt,
-                                messages=self.conversation_history.copy(),
-                                tools=tools,
+                            final_follow_up_response = (
+                                self.client.chat.completions.create(
+                                    model=ModelConfig.DEFAULT_LUCAN_MODEL,
+                                    messages=[
+                                        {
+                                            "role": "system",
+                                            "content": current_system_prompt,
+                                        }
+                                    ]
+                                    + self.conversation_history.copy(),
+                                    tools=tools,
+                                )
                             )
 
                             if self.debug:
                                 print(
-                                    f"[DEBUG] Final follow-up response stop reason: {final_follow_up_response.stop_reason}"
+                                    f"[DEBUG] Final follow-up response finish reason: {final_follow_up_response.choices[0].finish_reason}"
                                 )
 
                             # Extract the final response text
-                            final_response = ""
-                            if final_follow_up_response.content:
-                                for content_block in final_follow_up_response.content:
-                                    if content_block.type == "text":
-                                        final_response += content_block.text
+                            final_response = (
+                                final_follow_up_response.choices[0].message.content
+                                or ""
+                            )
                         else:
                             # No additional tool results, use any text from follow-up response
-                            final_response = "".join(follow_up_assistant_content)
+                            final_response = follow_up_assistant_content
 
                     else:
                         # Standard case - follow-up response contains text
-                        final_response = ""
-                        if follow_up_response.content:
-                            for content_block in follow_up_response.content:
-                                if content_block.type == "text":
-                                    final_response += content_block.text
-                                    if self.debug:
-                                        print(
-                                            f"[DEBUG] Adding text block: '{content_block.text[:100]}...'"
-                                        )
+                        final_response = (
+                            follow_up_response.choices[0].message.content or ""
+                        )
 
                     if self.debug:
                         print(f"[DEBUG] Final response length: {len(final_response)}")
@@ -628,48 +598,36 @@ Pay attention to user feedback and be willing to adjust your approach when it's 
                                 "[DEBUG] Attempting recovery: using assistant_content from initial response"
                             )
                         final_response = (
-                            "".join(assistant_content)
+                            assistant_content
                             or "I received the information but encountered an issue generating a response. Could you please try again?"
                         )
 
-                    # Process any modifier adjustments in the final response
-                    processed_response = self.process_modifier_adjustment(
-                        final_response
-                    )
-
                     # Add the final response to history
                     self.conversation_history.append(
-                        {"role": "assistant", "content": processed_response}
+                        {"role": "assistant", "content": final_response}
                     )
 
                     # After Lucan's response is generated, publish event to sidecar
-                    self._publish_sidecar_event(user_message, processed_response)
-                    return processed_response
+                    self._publish_sidecar_event(user_message, final_response)
+                    return final_response
                 else:
                     # No tool results, just return the assistant's text
-                    assistant_text = "".join(assistant_content)
-                    processed_response = self.process_modifier_adjustment(
-                        assistant_text
-                    )
                     # After Lucan's response is generated, publish event to sidecar
-                    self._publish_sidecar_event(user_message, processed_response)
-                    return processed_response
+                    self._publish_sidecar_event(user_message, assistant_content)
+                    return assistant_content
 
             else:
                 # No tool calls, handle as before
-                lucan_response = response.content[0].text
-
-                # Process any modifier adjustments
-                processed_response = self.process_modifier_adjustment(lucan_response)
+                lucan_response = response.choices[0].message.content
 
                 # Add Lucan's response to history
                 self.conversation_history.append(
-                    {"role": "assistant", "content": processed_response}
+                    {"role": "assistant", "content": lucan_response}
                 )
 
                 # After Lucan's response is generated, publish event to sidecar
-                self._publish_sidecar_event(user_message, processed_response)
-                return processed_response
+                self._publish_sidecar_event(user_message, lucan_response)
+                return lucan_response
 
         except Exception as e:
             return f"Error communicating with Lucan: {str(e)}"
