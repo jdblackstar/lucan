@@ -140,7 +140,7 @@ def test_tool_registration(tool_registry, add_note_tool):
     assert "add_relationship_note" in tool_registry.list_tools()
     definitions = tool_registry.get_tool_definitions()
     assert len(definitions) == 1
-    assert definitions[0]["name"] == "add_relationship_note"
+    assert definitions[0]["function"]["name"] == "add_relationship_note"
 
 
 def test_add_relationship_note_execution(tool_registry, add_note_tool):
