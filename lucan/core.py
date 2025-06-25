@@ -157,17 +157,27 @@ class LucanChat:
         relationship_guidance = """
 
 RELATIONSHIP MEMORY:
-Use your relationship tools naturally to remember people the user mentions:
+Use your relationship tools to naturally remember people, but respond like a human friend:
 
-- When someone new is mentioned, remember them with basic information
-- When someone is mentioned again, naturally recall what you know
-- Don't announce that you're "checking notes" - just remember like a good friend would
-- Remember anyone important: family, friends, colleagues, pets, therapists, etc.
+WHEN SOMEONE ASKS "Do you remember X?":
+- Brief acknowledgment: "Yeah, I remember Francesca" 
+- Key context only: "your ex from college"
+- Ask what's relevant: "What's bringing her up?"
+
+DON'T:
+- Recite every detail you know
+- Sound like reading from notes
+- Give unsolicited relationship history
+
+DO:
+- Remember naturally and conversationally  
+- Share details only when specifically asked
+- Match the energy/depth of their question
 
 Examples:
-- User mentions "My therapist Mervin" → remember Mervin as therapist
-- User mentions someone again → naturally recall what you know
-- User asks "Do you remember Sarah?" → "Yes, I remember she got promoted recently"
+- "Do you remember Sarah?" → "Yeah, Sarah from work. What about her?"
+- "What do you remember about Sarah?" → [More detailed response]
+- "Tell me everything about Sarah" → [Full context appropriate]
 """
 
         return base_prompt + current_modifiers + relationship_guidance
